@@ -42,19 +42,52 @@ func (s *dashboardModel) View() string {
 	b.WriteString(headerStyle.Render("  1 Dashboard"))
 	b.WriteString("\n\n")
 
-	s.printProjectCard(&b, s.backlog.Current, false, s.width)
-
-	for _, ext := range s.backlog.Externals {
-		s.printProjectCard(&b, ext, true, s.width)
+	// Active sprint ribbon
+	if len(s.backlog.Current.Sprints) > 0 {
+		sp := s.backlog.Current.Sprints[0]
+		sp.Tasks = s.backlog.TasksBySprint(sp.Name)
+		total := sp.TotalPoints()
+		done := sp.CompletedPoints()
+		barW := s.barWidth()
+		bar := progressBar(done, total, barW)
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(
+			fmt.Sprintf(" %s  %s", StatusBadge("in-progress"), sp.Name)))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(
+			fmt.Sprintf("  %s", bar)))
+		b.WriteString("\n\n")
 	}
 
-	// Health summary
+	s.printProjectCard(&b, s.backlog.Current, false)
+
+	for _, ext := range s.backlog.Externals {
+		s.printProjectCard(&b, ext, true)
+	}
+
 	health := s.backlog.CheckHealth()
 	barW := s.barWidth()
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Backlog Health"))
-	b.WriteString("\n\n")
+
+	healthColor := colorSuccess
+	healthGlyph := "●"
+	if len(health.Issues) > 0 {
+		for _, issue := range health.Issues {
+			if issue.Severity == "error" {
+				healthColor = colorError
+				healthGlyph = "●"
+				break
+			}
+			if issue.Severity == "warning" {
+				healthColor = colorWarning
+				healthGlyph = "●"
+			}
+		}
+	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(healthColor).Render(
+		fmt.Sprintf(" %s Health", healthGlyph)))
+	b.WriteString("\n")
+
 	if len(health.Issues) == 0 {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorSuccess).Render(" ✓ No issues found"))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorSuccess).Render(" All clear"))
+		b.WriteString("\n")
 	} else {
 		errCount := 0
 		warnCount := 0
@@ -70,8 +103,8 @@ func (s *dashboardModel) View() string {
 			if f > barW {
 				f = barW
 			}
-			errBar := lipgloss.NewStyle().Foreground(colorError).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf("  errors    %s  %d", errBar, errCount)))
+			bar := lipgloss.NewStyle().Foreground(colorError).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorError).Render(fmt.Sprintf("errors  %s  %d", bar, errCount)))
 			b.WriteString("\n")
 		}
 		if warnCount > 0 {
@@ -79,42 +112,14 @@ func (s *dashboardModel) View() string {
 			if f > barW {
 				f = barW
 			}
-			warnBar := lipgloss.NewStyle().Foreground(colorWarning).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf("  warnings  %s  %d", warnBar, warnCount)))
-			b.WriteString("\n")
-		}
-		// First 3 issues
-		limit := 3
-		if len(health.Issues) < limit {
-			limit = len(health.Issues)
-		}
-		b.WriteString("\n")
-		for i := 0; i < limit; i++ {
-			issue := health.Issues[i]
-			var sevColor lipgloss.Color
-			icon := " •"
-			if issue.Severity == "error" {
-				sevColor = colorError
-				icon = " ✖"
-			} else {
-				sevColor = colorWarning
-				icon = " ⚠"
-			}
-			msg := fmt.Sprintf("%s %s", icon, issue.Message)
-			if issue.TaskID != "" {
-				msg += fmt.Sprintf(" [%s]", issue.TaskID)
-			}
-			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(sevColor).Render(msg))
-			b.WriteString("\n")
-		}
-		if len(health.Issues) > limit {
-			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorTextDim).Render(fmt.Sprintf("+%d more issues (screen 5)", len(health.Issues)-limit)))
+			bar := lipgloss.NewStyle().Foreground(colorWarning).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorWarning).Render(fmt.Sprintf("warn    %s  %d", bar, warnCount)))
 			b.WriteString("\n")
 		}
 	}
 
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for file changes... live reload active"))
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for changes... live reload active"))
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	w := s.width - 4
@@ -142,22 +147,20 @@ func (s *dashboardModel) barWidth() int {
 	return w
 }
 
-func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool, termWidth int) {
+func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool) {
 	counts := s.backlog.StatusCounts(snap.Config.ProjectID)
 	total := 0
 	for _, c := range counts {
 		total += c
 	}
-
-	title := snap.Config.ProjectID + " (" + snap.Config.Name + ")"
+	title := snap.Config.ProjectID
 	if external {
-		title += " ext"
+		title += " " + ExternalBadge()
 	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render(title))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	barW := s.barWidth()
-
 	statusOrder := []struct {
 		label  string
 		status model.Status
@@ -170,7 +173,6 @@ func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.Projec
 		{"done", model.StatusDone, colorSuccess},
 		{"cancelled", model.StatusCancelled, colorError},
 	}
-
 	for _, st := range statusOrder {
 		n := counts[st.status]
 		if n == 0 {
@@ -180,9 +182,9 @@ func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.Projec
 		if f > barW {
 			f = barW
 		}
+		g := statusDot(string(st.status))
 		bar := lipgloss.NewStyle().Foreground(st.color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-		line := fmt.Sprintf("  %-12s %s  %d", st.label, bar, n)
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(line))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Render(fmt.Sprintf("%s %-11s %s  %d", g, st.label, bar, n)))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

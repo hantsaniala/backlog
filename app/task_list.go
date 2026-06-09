@@ -74,13 +74,12 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 	ti.CharLimit = 50
 
 	columns := []table.Column{
-		{Title: "Project", Width: 8},
-		{Title: "ID", Width: 16},
-		{Title: "Type", Width: 8},
-		{Title: "Status", Width: 12},
-		{Title: "Title", Width: 30},
+		{Title: "Proj", Width: 6},
+		{Title: "ID", Width: 14},
+		{Title: "St", Width: 4},
+		{Title: "Title", Width: 40},
 		{Title: "SP", Width: 4},
-		{Title: "Sprint", Width: 10},
+		{Title: "Sprint", Width: 8},
 	}
 
 	t := table.New(
@@ -183,10 +182,22 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if s.showFilter && s.filterMode == filterSearch {
+		if km, ok := msg.(tea.KeyMsg); ok && key.Matches(km, Keys.Back) {
+			s.showFilter = false
+			s.filterMode = filterNone
+			s.search.Blur()
+			s.search.SetValue("")
+			s.filterText = ""
+			s.rebuild()
+			return s, nil
+		}
+		oldText := s.filterText
 		var cmd2 tea.Cmd
 		s.search, cmd2 = s.search.Update(msg)
 		s.filterText = s.search.Value()
-		s.rebuild()
+		if s.filterText != oldText {
+			s.rebuild()
+		}
 		return s, cmd2
 	}
 
@@ -227,7 +238,6 @@ func (s *taskListModel) rebuild() {
 	filtered := s.filterTasks()
 	s.buildTree(filtered)
 
-	// Conditional type column
 	showType := false
 	for _, r := range s.rows {
 		if r.task.Type != model.TypeTask {
@@ -236,7 +246,6 @@ func (s *taskListModel) rebuild() {
 		}
 	}
 
-	// Calculate column widths based on available space
 	avail := 80
 	if s.width > 0 {
 		avail = s.width - 4
@@ -245,8 +254,8 @@ func (s *taskListModel) rebuild() {
 			if detailW < 35 {
 				detailW = 35
 			}
-			if detailW > 60 {
-				detailW = 60
+			if detailW > 55 {
+				detailW = 55
 			}
 			avail = s.width - 4 - detailW
 		}
@@ -255,9 +264,9 @@ func (s *taskListModel) rebuild() {
 		avail = 40
 	}
 
-	fixedWidth := 8 + 16 + 12 + 10 + 4 + 10 // Project+ID+Status+Priority+SP+Sprint
+	fixedWidth := 6 + 14 + 4 + 4 + 8 // Proj+ID+St+SP+Sprint
 	if showType {
-		fixedWidth += 8
+		fixedWidth += 4
 	}
 	titleW := avail - fixedWidth
 	if titleW < 10 {
@@ -265,17 +274,17 @@ func (s *taskListModel) rebuild() {
 	}
 
 	cols := []table.Column{
-		{Title: "Project", Width: 8},
-		{Title: "ID", Width: 16},
+		{Title: "Proj", Width: 6},
+		{Title: "ID", Width: 14},
 	}
 	if showType {
-		cols = append(cols, table.Column{Title: "Type", Width: 8})
+		cols = append(cols, table.Column{Title: "T", Width: 4})
 	}
 	cols = append(cols,
-		table.Column{Title: "Status", Width: 12},
+		table.Column{Title: "St", Width: 4},
 		table.Column{Title: "Title", Width: titleW},
 		table.Column{Title: "SP", Width: 4},
-		table.Column{Title: "Sprint", Width: 10},
+		table.Column{Title: "Sprint", Width: 8},
 	)
 	s.table.SetColumns(cols)
 
@@ -296,13 +305,13 @@ func (s *taskListModel) rebuild() {
 			title = truncate(r.prefix+t.ID, titleW)
 		}
 
-		statusStr := StatusBadge(string(t.Status))
+		glyph := statusDot(string(t.Status))
 
 		row := table.Row{pid, t.ID}
 		if showType {
-			row = append(row, string(t.Type))
+			row = append(row, typeDot(string(t.Type)))
 		}
-		row = append(row, statusStr, title, sp, t.Sprint)
+		row = append(row, glyph, title, sp, t.Sprint)
 		rows = append(rows, row)
 	}
 	s.table.SetRows(rows)

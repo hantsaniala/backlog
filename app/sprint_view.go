@@ -74,38 +74,36 @@ func (s *sprintViewModel) View() string {
 		return s.viewport.View()
 	}
 
-	// Sprint selector tabs
 	for i, sp := range sprints {
+		sp.Tasks = s.backlog.TasksBySprint(sp.Name)
+		total := sp.TotalPoints()
+		done := sp.CompletedPoints()
+		label := sp.Name
+		if total > 0 {
+			label = fmt.Sprintf("%s (%d/%d)", sp.Name, done, total)
+		}
 		if i == s.sprintIdx {
-			b.WriteString(tabActiveStyle.Render(fmt.Sprintf(" %s ", sp.Name)))
+			b.WriteString(tabActiveStyle.Render(fmt.Sprintf(" %s ", label)))
 		} else {
-			b.WriteString(tabInactiveStyle.Render(fmt.Sprintf(" %s ", sp.Name)))
+			b.WriteString(tabInactiveStyle.Render(fmt.Sprintf(" %s ", label)))
 		}
 	}
 	b.WriteString("\n\n")
 
 	current := sprints[s.sprintIdx]
 	current.Tasks = s.backlog.TasksBySprint(current.Name)
-
 	total := current.TotalPoints()
 	completed := current.CompletedPoints()
 
-	// Header
-	header := fmt.Sprintf("  %s", current.Name)
+	header := fmt.Sprintf(" %s", current.Name)
 	if current.Goal != "" {
 		header += fmt.Sprintf(" — %s", current.Goal)
 	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(header))
 	b.WriteString("\n")
-	if current.Start != "" && current.End != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf("  %s  →  %s", current.Start, current.End)))
-		b.WriteString("\n")
-	}
 
-	// Burndown bar
 	barW := s.barWidth()
-	b.WriteString("\n  ")
-	b.WriteString(progressBar(completed, total, barW))
+	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(fmt.Sprintf(" %s", progressBar(completed, total, barW))))
 	pct := 0.0
 	if total > 0 {
 		pct = float64(completed) / float64(total) * 100
@@ -113,7 +111,6 @@ func (s *sprintViewModel) View() string {
 	b.WriteString(fmt.Sprintf(" (%.0f%%)", pct))
 	b.WriteString("\n\n")
 
-	// Tasks grouped by status
 	statusGroups := []model.Status{
 		model.StatusInProgress, model.StatusReview,
 		model.StatusTodo, model.StatusOnHold,
@@ -129,29 +126,21 @@ func (s *sprintViewModel) View() string {
 		if len(groupTasks) == 0 {
 			continue
 		}
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(
-			fmt.Sprintf("%s (%d)", StatusBadge(string(st)), len(groupTasks))))
+		g := statusDot(string(st))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(fmt.Sprintf("%s %s (%d)", StatusBadge(string(st)), g, len(groupTasks))))
 		b.WriteString("\n")
 		for _, t := range groupTasks {
 			spStr := ""
 			if t.StoryPoints != nil {
 				spStr = fmt.Sprintf(" %dsp", *t.StoryPoints)
 			}
-			// Mini status bar per task
-			fill := 0
-			switch t.Status {
-			case model.StatusDone:
-				fill = 4
-			case model.StatusInProgress, model.StatusReview:
-				fill = 2
-			}
-			mini := miniBar(fill, 4, 4)
+			glyph := statusDot(string(t.Status))
 			title := t.ID
 			if t.Summary != "" {
 				title = t.Summary
 			}
-			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorText).Render(
-				fmt.Sprintf("%s  %s%s", mini, title, spStr)))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorText).Render(
+				fmt.Sprintf(" %s  %s%s", glyph, title, spStr)))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")

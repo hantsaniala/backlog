@@ -31,7 +31,6 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 	if task == nil {
 		return ""
 	}
-
 	if width < 30 {
 		width = 30
 	}
@@ -41,53 +40,48 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 
 	var b strings.Builder
 
-	// Close button row
-	closeBtn := lipgloss.NewStyle().Width(width - 2).Align(lipgloss.Right).Foreground(colorTextDim).Render("[X]")
-	b.WriteString(closeBtn)
+	// Close button
+	b.WriteString(lipgloss.NewStyle().Width(width - 2).Align(lipgloss.Right).Foreground(colorTextDim).Render("[X]"))
 	b.WriteString("\n")
 
-	// ID header
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(" " + task.ID))
+	// ID line with glyphs
+	glyph := statusDot(string(task.Status))
+	pDot := priorityDot(string(task.Priority))
+	tDot := typeDot(string(task.Type))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(
+		fmt.Sprintf(" %s %s  %s %s", glyph, tDot, task.ID, pDot)))
 	if task.ProjectID != backlog.Current.Config.ProjectID {
 		b.WriteString(" " + ExternalBadge())
 	}
 	b.WriteString("\n")
 
-	// Separator
-	sep := lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", width-2))
-	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(sep))
-	b.WriteString("\n")
-
 	// Fields
-	if str := string(task.Type); str != "" {
-		b.WriteString(labelValue("Type", str, width))
-	}
-	if str := string(task.Status); str != "" {
-		b.WriteString(labelValue("Status", str, width))
-	}
-	if str := string(task.Priority); str != "" {
-		b.WriteString(labelValue("Priority", str, width))
+	fields := []string{
+		fmt.Sprintf("  %s  %s", typeDot(string(task.Type)), string(task.Type)),
+		fmt.Sprintf("  %s  %s", statusDot(string(task.Status)), string(task.Status)),
+		fmt.Sprintf("  %s  %s", priorityDot(string(task.Priority)), string(task.Priority)),
 	}
 	if str := string(task.Severity); str != "" {
-		b.WriteString(labelValue("Severity", str, width))
+		fields = append(fields, fmt.Sprintf("  severity: %s", str))
 	}
 	if task.Assignee != "" {
-		b.WriteString(labelValue("Assignee", task.Assignee, width))
+		fields = append(fields, fmt.Sprintf("  assignee: %s", task.Assignee))
 	}
 	if task.StoryPoints != nil {
-		b.WriteString(labelValue("SP", fmt.Sprintf("%d", *task.StoryPoints), width))
+		fields = append(fields, fmt.Sprintf("  sp: %d", *task.StoryPoints))
 	}
 	if task.Epic != "" {
-		b.WriteString(labelValue("Epic", task.Epic, width))
+		fields = append(fields, fmt.Sprintf("  epic: %s", task.Epic))
 	}
 	if task.Sprint != "" {
-		b.WriteString(labelValue("Sprint", task.Sprint, width))
+		fields = append(fields, fmt.Sprintf("  sprint: %s", task.Sprint))
 	}
-	b.WriteString("\n")
+	b.WriteString(strings.Join(fields, "\n"))
+	b.WriteString("\n\n")
 
 	// Summary
 	if task.Summary != "" {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 1).Foreground(colorTextDim).Italic(true).Render(task.Summary))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Italic(true).Render(" " + task.Summary))
 		b.WriteString("\n")
 	}
 
@@ -100,14 +94,12 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 		}
 	}
 
-	// Separator before links
 	b.WriteString("\n")
 
-	// Links
-	printLinks(&b, "Parent", []string{task.Parent}, backlog, focusIdx, depFocus, "parent", width)
-	printLinks(&b, "Depends on", task.DependsOn, backlog, focusIdx, depFocus, "depends", width)
-	printLinks(&b, "Blocks", task.Blocks, backlog, focusIdx, depFocus, "blocks", width)
-	printLinks(&b, "Related", task.RelatedTo, backlog, focusIdx, depFocus, "related", width)
+	printLinks(&b, "parent", []string{task.Parent}, backlog, focusIdx, depFocus, "parent")
+	printLinks(&b, "depends", task.DependsOn, backlog, focusIdx, depFocus, "depends")
+	printLinks(&b, "blocks", task.Blocks, backlog, focusIdx, depFocus, "blocks")
+	printLinks(&b, "related", task.RelatedTo, backlog, focusIdx, depFocus, "related")
 
 	content := b.String()
 	detailStyle := lipgloss.NewStyle().
@@ -119,7 +111,7 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 	return detailStyle.Render(content)
 }
 
-func printLinks(b *strings.Builder, title string, ids []string, backlog *model.Backlog, focusIdx int, depFocus, section string, width int) {
+func printLinks(b *strings.Builder, title string, ids []string, backlog *model.Backlog, focusIdx int, depFocus, section string) {
 	var filtered []string
 	for _, id := range ids {
 		if id != "" {
@@ -130,7 +122,7 @@ func printLinks(b *strings.Builder, title string, ids []string, backlog *model.B
 		return
 	}
 
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Padding(0, 1).Render(title))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(" " + title))
 	b.WriteString("\n")
 	for i, id := range filtered {
 		t := backlog.TaskByID(id)
@@ -146,7 +138,7 @@ func printLinks(b *strings.Builder, title string, ids []string, backlog *model.B
 				Padding(0, 1)
 			b.WriteString(hl.Render(prefix + label))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Padding(0, 1).Foreground(colorText).Render(prefix + label))
+			b.WriteString(lipgloss.NewStyle().Foreground(colorText).Render(prefix + label))
 		}
 		b.WriteString("\n")
 	}

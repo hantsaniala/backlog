@@ -65,7 +65,7 @@ func (s *epicTreeModel) View() string {
 }
 
 func (s *epicTreeModel) printEpicNode(b *strings.Builder, ep *model.Epic, depth int) {
-	indent := strings.Repeat("  ", depth)
+	indent := strings.Repeat(" ", depth)
 
 	totalSP := 0
 	doneSP := 0
@@ -78,8 +78,8 @@ func (s *epicTreeModel) printEpicNode(b *strings.Builder, ep *model.Epic, depth 
 		}
 	}
 
-	barW := 12
-	fill := doneSP
+	barW := 10
+	fill := 0
 	if totalSP > 0 {
 		fill = doneSP * barW / totalSP
 		if fill > barW {
@@ -88,11 +88,13 @@ func (s *epicTreeModel) printEpicNode(b *strings.Builder, ep *model.Epic, depth 
 	}
 	bar := lipgloss.NewStyle().Foreground(colorSuccess).Render(strings.Repeat("█", fill) + strings.Repeat("░", barW-fill))
 
-	epicLine := fmt.Sprintf("%s%s %s  %s", indent, StatusBadge(string(ep.Status)), ep.ID, bar)
+	glyph := statusDot(string(ep.Status))
+	sp := ""
 	if totalSP > 0 {
-		epicLine += fmt.Sprintf("  %d/%dsp", doneSP, totalSP)
+		sp = fmt.Sprintf(" %d/%dsp", doneSP, totalSP)
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(epicLine))
+	b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(
+		fmt.Sprintf("%s%s %s  %s%s", indent, glyph, ep.ID, bar, sp)))
 	b.WriteString("\n")
 
 	for _, t := range ep.Children {
@@ -102,30 +104,18 @@ func (s *epicTreeModel) printEpicNode(b *strings.Builder, ep *model.Epic, depth 
 }
 
 func (s *epicTreeModel) printTaskNode(b *strings.Builder, t *model.Task, depth int) {
-	indent := strings.Repeat("  ", depth)
-	prefix := "   └ "
+	indent := strings.Repeat(" ", depth)
+	prefix := " └ "
 	if depth > 1 {
-		prefix = "    • "
+		prefix = "  \u2022 "
 	}
 
 	sp := ""
 	if t.StoryPoints != nil {
-		sp = fmt.Sprintf(" [%dsp]", *t.StoryPoints)
+		sp = fmt.Sprintf(" %dsp", *t.StoryPoints)
 	}
 
-	barStatus := 0
-	switch t.Status {
-	case model.StatusDone:
-		barStatus = 2
-	case model.StatusInProgress, model.StatusReview:
-		barStatus = 1
-	}
-	barW := 6
-	fill := barStatus * barW / 2
-	bar := lipgloss.NewStyle().Foreground(colorSuccess).Render(strings.Repeat("█", fill) + strings.Repeat("░", barW-fill))
-
-	line := fmt.Sprintf("%s%s %s%s  %s%s", indent, prefix, StatusBadge(string(t.Status)), t.ID, bar, sp)
-
+	g := statusDot(string(t.Status))
 	var typeColor lipgloss.Color
 	switch t.Type {
 	case model.TypeStory:
@@ -135,6 +125,16 @@ func (s *epicTreeModel) printTaskNode(b *strings.Builder, t *model.Task, depth i
 	default:
 		typeColor = colorText
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(typeColor).Render(line))
+	barW := 4
+	fill := 0
+	if t.Status == model.StatusDone {
+		fill = barW
+	} else if t.Status == model.StatusInProgress || t.Status == model.StatusReview {
+		fill = barW / 2
+	}
+	bar := lipgloss.NewStyle().Foreground(colorSuccess).Render(strings.Repeat("█", fill) + strings.Repeat("░", barW-fill))
+
+	b.WriteString(lipgloss.NewStyle().Foreground(typeColor).Render(
+		fmt.Sprintf("%s%s%s %s %s%s", indent, prefix, g, t.ID, bar, sp)))
 	b.WriteString("\n")
 }

@@ -8,7 +8,6 @@ import (
 )
 
 var (
-	// Colors
 	colorPrimary    = lipgloss.Color("#7C3AED")
 	colorSecondary  = lipgloss.Color("#06B6D4")
 	colorSuccess    = lipgloss.Color("#10B981")
@@ -25,7 +24,6 @@ var (
 	colorTextBright = lipgloss.Color("#F8FAFC")
 	colorBorder     = lipgloss.Color("#3D3D5C")
 
-	// Layout
 	footerStyle = lipgloss.NewStyle().
 			Height(1).
 			Foreground(colorTextDim).
@@ -47,7 +45,6 @@ var (
 				Background(colorSurface).
 				Padding(0, 2)
 
-	// Status badge colors
 	statusColors = map[string]lipgloss.Color{
 		"todo":        colorInfo,
 		"in-progress": colorWarning,
@@ -55,6 +52,15 @@ var (
 		"on-hold":     colorTextDim,
 		"done":        colorSuccess,
 		"cancelled":   colorError,
+	}
+
+	statusGlyph = map[string]string{
+		"todo":        "◌",
+		"in-progress": "◎",
+		"review":      "◐",
+		"on-hold":     "◷",
+		"done":        "●",
+		"cancelled":   "⊗",
 	}
 )
 
@@ -71,7 +77,19 @@ func StatusBadge(status string) string {
 		Render(status)
 }
 
-func PriorityBadge(priority string) string {
+func statusDot(status string) string {
+	c, ok := statusColors[status]
+	if !ok {
+		c = colorTextDim
+	}
+	g, ok := statusGlyph[status]
+	if !ok {
+		g = "?"
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(g)
+}
+
+func priorityDot(priority string) string {
 	var c lipgloss.Color
 	switch priority {
 	case "critical":
@@ -83,14 +101,10 @@ func PriorityBadge(priority string) string {
 	default:
 		c = colorTextDim
 	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
-		Background(c).
-		Padding(0, 1).
-		Render(priority)
+	return lipgloss.NewStyle().Foreground(c).Render("◆")
 }
 
-func TypeBadge(t string) string {
+func typeDot(t string) string {
 	var c lipgloss.Color
 	switch t {
 	case "bug":
@@ -104,19 +118,12 @@ func TypeBadge(t string) string {
 	default:
 		c = colorPrimary
 	}
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
-		Background(c).
-		Padding(0, 1).
-		Render(t)
+	return lipgloss.NewStyle().Foreground(c).Render("●")
 }
 
-func ExternalBadge() string {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
-		Background(colorTextDim).
-		Padding(0, 1).
-		Render("ext")
+func sectionHeader(title string, color lipgloss.Color, width int) string {
+	line := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width-2))
+	return fmt.Sprintf(" %s %s %s", lipgloss.NewStyle().Foreground(color).Render("┃"), title, line)
 }
 
 func progressBar(filled, total int, width int) string {
@@ -145,52 +152,10 @@ func progressBar(filled, total int, width int) string {
 	return fmt.Sprintf("%s %d/%d", colored, filled, total)
 }
 
-func miniBar(filled, total int, width int) string {
-	if total <= 0 {
-		total = 1
-	}
-	if filled > total {
-		filled = total
-	}
-	ratio := float64(filled) / float64(total)
-	fillChars := int(ratio * float64(width))
-	if fillChars > width {
-		fillChars = width
-	}
-	var c lipgloss.Color
-	switch {
-	case ratio >= 0.9:
-		c = colorSuccess
-	case ratio >= 0.5:
-		c = colorWarning
-	default:
-		c = colorInfo
-	}
-	bar := strings.Repeat("█", fillChars) + strings.Repeat("░", width-fillChars)
-	return lipgloss.NewStyle().Foreground(c).Render(bar)
-}
-
-func card(title string, body string, width int, active bool) string {
-	titleColor := colorTextDim
-	if active {
-		titleColor = colorPrimary
-	}
-	w := lipgloss.NewStyle().Width(width)
-	header := lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(" " + title)
-	return w.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			body,
-		),
-	)
-}
-
-func labelValue(label, value string, w int) string {
-	if value == "" || value == "0" {
-		return ""
-	}
+func ExternalBadge() string {
 	return lipgloss.NewStyle().
-		Width(w).
-		Foreground(colorTextDim).
-		Render(fmt.Sprintf(" %-11s %s", label+":", value))
+		Foreground(lipgloss.Color("#1E1E2E")).
+		Background(colorTextDim).
+		Padding(0, 1).
+		Render("ext")
 }

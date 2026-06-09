@@ -42,7 +42,6 @@ func (s *backlogHealthModel) View() string {
 	b.WriteString("\n\n")
 
 	report := s.backlog.CheckHealth()
-
 	barW := s.barWidth()
 
 	errCount := 0
@@ -59,7 +58,6 @@ func (s *backlogHealthModel) View() string {
 		}
 	}
 
-	// Severity bars
 	maxCount := errCount
 	if warnCount > maxCount {
 		maxCount = warnCount
@@ -77,12 +75,12 @@ func (s *backlogHealthModel) View() string {
 			f = barW
 		}
 		bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf("  %-10s %s  %d", label, bar, count)))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf(" %s  %-10s %s  %d", statusDot(label), label, bar, count)))
 		b.WriteString("\n")
 	}
 
 	if len(report.Issues) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Padding(0, 2).Render(" ✓ No issues found. Backlog is healthy."))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Padding(0, 2).Render(" ● No issues"))
 		b.WriteString("\n\n")
 	} else {
 		drawBar("errors", errCount, colorError)
@@ -95,13 +93,13 @@ func (s *backlogHealthModel) View() string {
 			var sevColor lipgloss.Color
 			switch issue.Severity {
 			case "error":
-				icon = " ✖"
+				icon = "  ✖"
 				sevColor = colorError
 			case "warning":
-				icon = " ⚠"
+				icon = "  ⚠"
 				sevColor = colorWarning
 			default:
-				icon = " ℹ"
+				icon = "  ℹ"
 				sevColor = colorInfo
 			}
 			msg := fmt.Sprintf("%s %s", icon, issue.Message)
@@ -114,7 +112,6 @@ func (s *backlogHealthModel) View() string {
 		b.WriteString("\n")
 	}
 
-	// Stats grid
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Stats"))
 	b.WriteString("\n\n")
 
@@ -124,29 +121,10 @@ func (s *backlogHealthModel) View() string {
 		totalTasks += c
 	}
 
-	stats := []struct {
-		label string
-		value string
-	}{
-		{"Tasks", fmt.Sprintf("%d", totalTasks)},
-		{"Epics", fmt.Sprintf("%d", len(s.backlog.AllEpics))},
-		{"Sprints", fmt.Sprintf("%d", len(s.backlog.Current.Sprints))},
-		{"Projects", fmt.Sprintf("%d", 1+len(s.backlog.Externals))},
-	}
-
-	// Two-column grid
-	for i, stat := range stats {
-		if i%2 == 0 {
-			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(
-				fmt.Sprintf("  %-12s %s", stat.label+":", stat.value)))
-		} else {
-			b.WriteString(lipgloss.NewStyle().Render(
-				fmt.Sprintf("    %-12s %s", stat.label+":", stat.value)))
-		}
-		if i%2 == 1 || i == len(stats)-1 {
-			b.WriteString("\n")
-		}
-	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorText).Render(
+		fmt.Sprintf(" tasks: %d | epics: %d | sprints: %d | projects: %d",
+			totalTasks, len(s.backlog.AllEpics), len(s.backlog.Current.Sprints), 1+len(s.backlog.Externals))))
+	b.WriteString("\n")
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	w := s.width - 4
