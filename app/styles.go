@@ -1,50 +1,51 @@
 package app
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
 	// Colors
-	colorPrimary   = lipgloss.Color("#7C3AED") // purple
-	colorSecondary = lipgloss.Color("#06B6D4") // cyan
-	colorSuccess   = lipgloss.Color("#10B981") // green
-	colorWarning   = lipgloss.Color("#F59E0B") // amber
-	colorError     = lipgloss.Color("#EF4444") // red
-	colorInfo      = lipgloss.Color("#3B82F6") // blue
+	colorPrimary    = lipgloss.Color("#7C3AED")
+	colorSecondary  = lipgloss.Color("#06B6D4")
+	colorSuccess    = lipgloss.Color("#10B981")
+	colorWarning    = lipgloss.Color("#F59E0B")
+	colorError      = lipgloss.Color("#EF4444")
+	colorInfo       = lipgloss.Color("#3B82F6")
+	colorAccent     = lipgloss.Color("#A78BFA")
 
-	colorBg        = lipgloss.Color("#1E1E2E")
-	colorSurface   = lipgloss.Color("#2D2D44")
-	colorText      = lipgloss.Color("#E2E8F0")
-	colorTextDim   = lipgloss.Color("#64748B")
+	colorBg         = lipgloss.Color("#1E1E2E")
+	colorSurface    = lipgloss.Color("#2D2D44")
+	colorSurfaceAlt = lipgloss.Color("#25253D")
+	colorText       = lipgloss.Color("#E2E8F0")
+	colorTextDim    = lipgloss.Color("#64748B")
 	colorTextBright = lipgloss.Color("#F8FAFC")
-	colorBorder    = lipgloss.Color("#3D3D5C")
+	colorBorder     = lipgloss.Color("#3D3D5C")
 
 	// Layout
-	appStyle = lipgloss.NewStyle().
-		Margin(0, 0).
-		Padding(1, 2)
-
 	footerStyle = lipgloss.NewStyle().
-		Height(1).
-		Foreground(colorTextDim).
-		PaddingLeft(1)
+			Height(1).
+			Foreground(colorTextDim).
+			PaddingLeft(1)
 
 	headerStyle = lipgloss.NewStyle().
-		Foreground(colorTextBright).
-		Bold(true).
-		Padding(0, 1)
+			Foreground(colorTextBright).
+			Bold(true).
+			Padding(0, 1)
 
 	tabActiveStyle = lipgloss.NewStyle().
-		Foreground(colorTextBright).
-		Background(colorPrimary).
-		Bold(true).
-		Padding(0, 2)
+			Foreground(colorTextBright).
+			Background(colorPrimary).
+			Bold(true).
+			Padding(0, 2)
 
 	tabInactiveStyle = lipgloss.NewStyle().
-		Foreground(colorTextDim).
-		Background(colorSurface).
-		Padding(0, 2)
+				Foreground(colorTextDim).
+				Background(colorSurface).
+				Padding(0, 2)
 
 	// Status badge colors
 	statusColors = map[string]lipgloss.Color{
@@ -115,5 +116,81 @@ func ExternalBadge() string {
 		Foreground(lipgloss.Color("#1E1E2E")).
 		Background(colorTextDim).
 		Padding(0, 1).
-		Render("external")
+		Render("ext")
+}
+
+func progressBar(filled, total int, width int) string {
+	if total <= 0 {
+		total = 1
+	}
+	if filled > total {
+		filled = total
+	}
+	ratio := float64(filled) / float64(total)
+	fillChars := int(ratio * float64(width))
+	if fillChars > width {
+		fillChars = width
+	}
+	var c lipgloss.Color
+	switch {
+	case ratio >= 0.9:
+		c = colorSuccess
+	case ratio >= 0.5:
+		c = colorWarning
+	default:
+		c = colorInfo
+	}
+	bar := strings.Repeat("█", fillChars) + strings.Repeat("░", width-fillChars)
+	colored := lipgloss.NewStyle().Foreground(c).Render(bar)
+	return fmt.Sprintf("%s %d/%d", colored, filled, total)
+}
+
+func miniBar(filled, total int, width int) string {
+	if total <= 0 {
+		total = 1
+	}
+	if filled > total {
+		filled = total
+	}
+	ratio := float64(filled) / float64(total)
+	fillChars := int(ratio * float64(width))
+	if fillChars > width {
+		fillChars = width
+	}
+	var c lipgloss.Color
+	switch {
+	case ratio >= 0.9:
+		c = colorSuccess
+	case ratio >= 0.5:
+		c = colorWarning
+	default:
+		c = colorInfo
+	}
+	bar := strings.Repeat("█", fillChars) + strings.Repeat("░", width-fillChars)
+	return lipgloss.NewStyle().Foreground(c).Render(bar)
+}
+
+func card(title string, body string, width int, active bool) string {
+	titleColor := colorTextDim
+	if active {
+		titleColor = colorPrimary
+	}
+	w := lipgloss.NewStyle().Width(width)
+	header := lipgloss.NewStyle().Bold(true).Foreground(titleColor).Render(" " + title)
+	return w.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			body,
+		),
+	)
+}
+
+func labelValue(label, value string, w int) string {
+	if value == "" || value == "0" {
+		return ""
+	}
+	return lipgloss.NewStyle().
+		Width(w).
+		Foreground(colorTextDim).
+		Render(fmt.Sprintf(" %-11s %s", label+":", value))
 }

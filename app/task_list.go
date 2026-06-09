@@ -193,7 +193,14 @@ func (s *taskListModel) View() string {
 
 	if s.showDetail && s.detailTask != nil {
 		listView := s.table.View()
-		detailView := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName())
+		detailW := s.width * 2 / 5
+		if detailW < 35 {
+			detailW = 35
+		}
+		if detailW > 55 {
+			detailW = 55
+		}
+		detailView := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
 		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, detailView))
 	} else {
 		b.WriteString(s.table.View())

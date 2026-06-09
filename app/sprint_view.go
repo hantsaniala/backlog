@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/model"
 )
@@ -31,12 +31,12 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if len(s.backlog.Current.Sprints) > 0 {
 			switch {
-			case 			key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
+			case key.Matches(msg, Keys.Left):
 				if s.sprintIdx > 0 {
 					s.sprintIdx--
 					s.ready = false
 				}
-			case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
+			case key.Matches(msg, Keys.Right):
 				if s.sprintIdx < len(s.backlog.Current.Sprints)-1 {
 					s.sprintIdx++
 					s.ready = false
@@ -55,26 +55,31 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *sprintViewModel) View() string {
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("  Sprint View"))
+	b.WriteString(headerStyle.Render("  4 Sprints"))
 	b.WriteString("\n\n")
 
 	sprints := s.backlog.Current.Sprints
 	if len(sprints) == 0 {
 		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render("No sprints found"))
 		content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
+		w := s.width - 4
+		if w < 40 {
+			w = 80
+		}
 		if !s.ready {
-			s.viewport = viewport.New(80, 20)
+			s.viewport = viewport.New(w, 20)
 			s.viewport.SetContent(content)
 			s.ready = true
 		}
 		return s.viewport.View()
 	}
 
+	// Sprint selector tabs
 	for i, sp := range sprints {
 		if i == s.sprintIdx {
-			b.WriteString(tabActiveStyle.Render(sp.Name))
+			b.WriteString(tabActiveStyle.Render(fmt.Sprintf(" %s ", sp.Name)))
 		} else {
-			b.WriteString(tabInactiveStyle.Render(sp.Name))
+			b.WriteString(tabInactiveStyle.Render(fmt.Sprintf(" %s ", sp.Name)))
 		}
 	}
 	b.WriteString("\n\n")
@@ -82,24 +87,37 @@ func (s *sprintViewModel) View() string {
 	current := sprints[s.sprintIdx]
 	current.Tasks = s.backlog.TasksBySprint(current.Name)
 
-	b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(fmt.Sprintf("  %s", current.Name)))
+	total := current.TotalPoints()
+	completed := current.CompletedPoints()
+
+	// Header
+	header := fmt.Sprintf("  %s", current.Name)
 	if current.Goal != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf(" - %s", current.Goal)))
+		header += fmt.Sprintf(" — %s", current.Goal)
 	}
+	b.WriteString(lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(header))
 	b.WriteString("\n")
 	if current.Start != "" && current.End != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf("  %s to %s", current.Start, current.End)))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf("  %s  →  %s", current.Start, current.End)))
 		b.WriteString("\n")
 	}
 
-	total := current.TotalPoints()
-	completed := current.CompletedPoints()
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf("  Progress: %d/%d points completed", completed, total)))
+	// Burndown bar
+	barW := s.barWidth()
+	b.WriteString("\n  ")
+	b.WriteString(progressBar(completed, total, barW))
+	pct := 0.0
+	if total > 0 {
+		pct = float64(completed) / float64(total) * 100
+	}
+	b.WriteString(fmt.Sprintf(" (%.0f%%)", pct))
 	b.WriteString("\n\n")
 
+	// Tasks grouped by status
 	statusGroups := []model.Status{
-		model.StatusTodo, model.StatusInProgress, model.StatusReview,
-		model.StatusOnHold, model.StatusDone, model.StatusCancelled,
+		model.StatusInProgress, model.StatusReview,
+		model.StatusTodo, model.StatusOnHold,
+		model.StatusDone, model.StatusCancelled,
 	}
 	for _, st := range statusGroups {
 		var groupTasks []*model.Task
@@ -111,24 +129,40 @@ func (s *sprintViewModel) View() string {
 		if len(groupTasks) == 0 {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("  %s (%d)\n", StatusBadge(string(st)), len(groupTasks)))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(
+			fmt.Sprintf("%s (%d)", StatusBadge(string(st)), len(groupTasks))))
+		b.WriteString("\n")
 		for _, t := range groupTasks {
-			sp := ""
+			spStr := ""
 			if t.StoryPoints != nil {
-				sp = fmt.Sprintf(" [%dsp]", *t.StoryPoints)
+				spStr = fmt.Sprintf(" %dsp", *t.StoryPoints)
 			}
-			b.WriteString(lipgloss.NewStyle().Foreground(colorText).Render(fmt.Sprintf("    \u2022 %s%s", t.ID, sp)))
+			// Mini status bar per task
+			fill := 0
+			switch t.Status {
+			case model.StatusDone:
+				fill = 4
+			case model.StatusInProgress, model.StatusReview:
+				fill = 2
+			}
+			mini := miniBar(fill, 4, 4)
+			title := t.ID
+			if t.Summary != "" {
+				title = t.Summary
+			}
+			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorText).Render(
+				fmt.Sprintf("%s  %s%s", mini, title, spStr)))
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
 	}
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
+	w := s.width - 4
+	if w < 40 {
+		w = 80
+	}
 	if !s.ready || s.width > 0 {
-		w := s.width - 4
-		if w < 40 {
-			w = 80
-		}
 		s.viewport = viewport.New(w, 20)
 		s.viewport.SetContent(content)
 		s.ready = true
@@ -136,4 +170,15 @@ func (s *sprintViewModel) View() string {
 		s.viewport.SetContent(content)
 	}
 	return s.viewport.View()
+}
+
+func (s *sprintViewModel) barWidth() int {
+	w := s.width - 16
+	if w < 10 {
+		return 10
+	}
+	if w > 40 {
+		return 40
+	}
+	return w
 }

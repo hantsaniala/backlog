@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -40,94 +39,155 @@ func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *dashboardModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(headerStyle.Render("  Dashboard"))
+	b.WriteString(headerStyle.Render("  1 Dashboard"))
 	b.WriteString("\n\n")
 
-	s.printProjectCard(&b, s.backlog.Current, false)
+	s.printProjectCard(&b, s.backlog.Current, false, s.width)
 
 	for _, ext := range s.backlog.Externals {
-		s.printProjectCard(&b, ext, true)
+		s.printProjectCard(&b, ext, true, s.width)
 	}
 
+	// Health summary
 	health := s.backlog.CheckHealth()
-	if len(health.Issues) > 0 {
-		b.WriteString(lipgloss.NewStyle().
-			Foreground(colorWarning).
-			Bold(true).
-			Render("\n  \u26A0 Backlog Health Issues"))
-		b.WriteString("\n")
+	barW := s.barWidth()
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Backlog Health"))
+	b.WriteString("\n\n")
+	if len(health.Issues) == 0 {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorSuccess).Render(" ✓ No issues found"))
+	} else {
+		errCount := 0
+		warnCount := 0
 		for _, issue := range health.Issues {
-			icon := "  \u2022"
-			style := lipgloss.NewStyle().Foreground(colorText)
 			if issue.Severity == "error" {
-				icon = "  \u2716"
-				style = lipgloss.NewStyle().Foreground(colorError)
-			} else if issue.Severity == "warning" {
-				icon = "  \u26A0"
-				style = lipgloss.NewStyle().Foreground(colorWarning)
+				errCount++
+			} else {
+				warnCount++
 			}
-			taskRef := ""
+		}
+		if errCount > 0 {
+			f := errCount
+			if f > barW {
+				f = barW
+			}
+			errBar := lipgloss.NewStyle().Foreground(colorError).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf("  errors    %s  %d", errBar, errCount)))
+			b.WriteString("\n")
+		}
+		if warnCount > 0 {
+			f := warnCount
+			if f > barW {
+				f = barW
+			}
+			warnBar := lipgloss.NewStyle().Foreground(colorWarning).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(fmt.Sprintf("  warnings  %s  %d", warnBar, warnCount)))
+			b.WriteString("\n")
+		}
+		// First 3 issues
+		limit := 3
+		if len(health.Issues) < limit {
+			limit = len(health.Issues)
+		}
+		b.WriteString("\n")
+		for i := 0; i < limit; i++ {
+			issue := health.Issues[i]
+			var sevColor lipgloss.Color
+			icon := " •"
+			if issue.Severity == "error" {
+				sevColor = colorError
+				icon = " ✖"
+			} else {
+				sevColor = colorWarning
+				icon = " ⚠"
+			}
+			msg := fmt.Sprintf("%s %s", icon, issue.Message)
 			if issue.TaskID != "" {
-				taskRef = " [" + issue.TaskID + "]"
+				msg += fmt.Sprintf(" [%s]", issue.TaskID)
 			}
-			b.WriteString(style.Render(fmt.Sprintf("%s %s%s", icon, issue.Message, taskRef)))
+			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(sevColor).Render(msg))
+			b.WriteString("\n")
+		}
+		if len(health.Issues) > limit {
+			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorTextDim).Render(fmt.Sprintf("+%d more issues (screen 5)", len(health.Issues)-limit)))
 			b.WriteString("\n")
 		}
 	}
 
-	b.WriteString("\n  Watching for file changes... live reload active")
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for file changes... live reload active"))
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-
+	w := s.width - 4
+	if w < 40 {
+		w = 80
+	}
 	if !s.ready || s.width > 0 {
-		w := s.width - 4
-		if w < 40 {
-			w = 80
-		}
 		s.viewport = viewport.New(w, 20)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {
 		s.viewport.SetContent(content)
 	}
-
 	return s.viewport.View()
 }
 
-func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool) {
-	counts := s.backlog.StatusCounts(snap.Config.ProjectID)
-
-	title := fmt.Sprintf("  %s (%s)", snap.Config.ProjectID, snap.Config.Name)
-	if external {
-		title += " " + ExternalBadge()
+func (s *dashboardModel) barWidth() int {
+	w := s.width - 24
+	if w < 8 {
+		return 8
 	}
-	b.WriteString(lipgloss.NewStyle().
-		Foreground(colorPrimary).
-		Bold(true).
-		Render(title))
-	b.WriteString("\n")
+	if w > 30 {
+		return 30
+	}
+	return w
+}
 
+func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool, termWidth int) {
+	counts := s.backlog.StatusCounts(snap.Config.ProjectID)
 	total := 0
 	for _, c := range counts {
 		total += c
 	}
-	statusLine := fmt.Sprintf("  Total: %d  |  todo: %d  prog: %d  review: %d  hold: %d  done: %d  cancelled: %d",
-		total, counts["todo"], counts["in-progress"], counts["review"], counts["on-hold"], counts["done"], counts["cancelled"])
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(statusLine))
+
+	title := snap.Config.ProjectID + " (" + snap.Config.Name + ")"
+	if external {
+		title += " ext"
+	}
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render(title))
 	b.WriteString("\n\n")
+
+	barW := s.barWidth()
+
+	statusOrder := []struct {
+		label  string
+		status model.Status
+		color  lipgloss.Color
+	}{
+		{"todo", model.StatusTodo, colorInfo},
+		{"in-progress", model.StatusInProgress, colorWarning},
+		{"review", model.StatusReview, colorSecondary},
+		{"on-hold", model.StatusOnHold, colorTextDim},
+		{"done", model.StatusDone, colorSuccess},
+		{"cancelled", model.StatusCancelled, colorError},
+	}
+
+	for _, st := range statusOrder {
+		n := counts[st.status]
+		if n == 0 {
+			continue
+		}
+		f := n
+		if f > barW {
+			f = barW
+		}
+		bar := lipgloss.NewStyle().Foreground(st.color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+		line := fmt.Sprintf("  %-12s %s  %d", st.label, bar, n)
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(line))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 }
 
 func (s *dashboardModel) refresh() {
 	s.ready = false
-}
-
-type summaryItem struct {
-	label string
-	value int
-}
-
-func sortSummary(items []summaryItem) {
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].value > items[j].value
-	})
 }
