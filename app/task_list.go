@@ -381,7 +381,21 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		}
 	}
 
-	// Remaining items (no epic, or external)
+	// Stories without epic — show with nested tasks
+	for _, t := range tasks {
+		if !seen[t.ID] && t.Type == model.TypeStory {
+			seen[t.ID] = true
+			rows = append(rows, flatRow{task: t, prefix: "  └ ", level: 1})
+			for _, child := range tasks {
+				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
+					seen[child.ID] = true
+					rows = append(rows, flatRow{task: child, prefix: "    • ", level: 2})
+				}
+			}
+		}
+	}
+
+	// Remaining items (no epic, no story parent)
 	for _, t := range tasks {
 		if !seen[t.ID] {
 			rows = append(rows, flatRow{task: t, prefix: "", level: 0})
