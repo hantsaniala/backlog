@@ -3,23 +3,21 @@ package app
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Top        key.Binding
-	Bottom     key.Binding
-	Enter      key.Binding
-	Back       key.Binding
-	Quit       key.Binding
-	Help       key.Binding
-	Filter     key.Binding
-	FilterMode key.Binding
-	Sort       key.Binding
-	Reload     key.Binding
-	TabLeft    key.Binding
-	TabRight   key.Binding
-	ToggleProj key.Binding
-	Left       key.Binding
-	Right      key.Binding
+	Up     key.Binding
+	Down   key.Binding
+	Tab    key.Binding
+	Enter  key.Binding
+	Back   key.Binding
+	Quit   key.Binding
+	Help   key.Binding
+	Filter key.Binding
+	Sort   key.Binding
+	Reload key.Binding
+	One    key.Binding
+	Two    key.Binding
+	Three  key.Binding
+	Four   key.Binding
+	Five   key.Binding
 }
 
 var Keys = keyMap{
@@ -31,21 +29,17 @@ var Keys = keyMap{
 		key.WithKeys("down", "j"),
 		key.WithHelp("↓/j", "down"),
 	),
-	Top: key.NewBinding(
-		key.WithKeys("g"),
-		key.WithHelp("g", "top"),
-	),
-	Bottom: key.NewBinding(
-		key.WithKeys("G"),
-		key.WithHelp("G", "bottom"),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "cycle focus"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter"),
-		key.WithHelp("enter", "open"),
+		key.WithHelp("enter", "toggle detail / open dep"),
 	),
 	Back: key.NewBinding(
 		key.WithKeys("esc"),
-		key.WithHelp("esc", "back"),
+		key.WithHelp("esc", "close detail"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("ctrl+c", "q"),
@@ -59,10 +53,6 @@ var Keys = keyMap{
 		key.WithKeys("/"),
 		key.WithHelp("/", "search"),
 	),
-	FilterMode: key.NewBinding(
-		key.WithKeys("f"),
-		key.WithHelp("f", "filter by"),
-	),
 	Sort: key.NewBinding(
 		key.WithKeys("s"),
 		key.WithHelp("s", "sort"),
@@ -71,37 +61,37 @@ var Keys = keyMap{
 		key.WithKeys("r"),
 		key.WithHelp("r", "reload"),
 	),
-	TabLeft: key.NewBinding(
-		key.WithKeys("shift+tab"),
-		key.WithHelp("S-tab", "prev tab"),
+	One: key.NewBinding(
+		key.WithKeys("1"),
+		key.WithHelp("1", "dashboard"),
 	),
-	TabRight: key.NewBinding(
-		key.WithKeys("tab"),
-		key.WithHelp("tab", "next tab"),
+	Two: key.NewBinding(
+		key.WithKeys("2"),
+		key.WithHelp("2", "tasks"),
 	),
-	ToggleProj: key.NewBinding(
-		key.WithKeys("p"),
-		key.WithHelp("p", "toggle projects"),
+	Three: key.NewBinding(
+		key.WithKeys("3"),
+		key.WithHelp("3", "epics"),
 	),
-	Left: key.NewBinding(
-		key.WithKeys("left", "h"),
-		key.WithHelp("\u2190/h", "prev"),
+	Four: key.NewBinding(
+		key.WithKeys("4"),
+		key.WithHelp("4", "sprints"),
 	),
-	Right: key.NewBinding(
-		key.WithKeys("right", "l"),
-		key.WithHelp("\u2192/l", "next"),
+	Five: key.NewBinding(
+		key.WithKeys("5"),
+		key.WithHelp("5", "health"),
 	),
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Back, k.Help, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Top, k.Bottom},
+		{k.Up, k.Down, k.Tab},
+		{k.One, k.Two, k.Three, k.Four, k.Five},
 		{k.Enter, k.Back, k.Quit},
-		{k.Filter, k.FilterMode, k.Sort, k.Reload},
-		{k.TabLeft, k.TabRight, k.ToggleProj},
+		{k.Filter, k.Sort, k.Reload},
 	}
 }

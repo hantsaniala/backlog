@@ -30,12 +30,12 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if len(s.backlog.Current.Sprints) > 0 {
 			switch {
-			case key.Matches(msg, Keys.Left):
+			case 			key.Matches(msg, key.NewBinding(key.WithKeys("left", "h"))):
 				if s.sprintIdx > 0 {
 					s.sprintIdx--
 					s.ready = false
 				}
-			case key.Matches(msg, Keys.Right):
+			case key.Matches(msg, key.NewBinding(key.WithKeys("right", "l"))):
 				if s.sprintIdx < len(s.backlog.Current.Sprints)-1 {
 					s.sprintIdx++
 					s.ready = false

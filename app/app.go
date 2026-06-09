@@ -16,17 +16,14 @@ type screen int
 const (
 	screenDashboard screen = iota
 	screenTaskList
-	screenTaskDetail
 	screenEpicTree
 	screenSprintView
 	screenBacklogHealth
-	screenHelp
 )
 
 type Model struct {
 	backlog       *model.Backlog
 	currentScreen screen
-	prevScreen    screen
 	screens       map[screen]tea.Model
 	help          help.Model
 	showHelp      bool
@@ -42,12 +39,11 @@ func New(b *model.Backlog) *Model {
 		currentScreen: screenDashboard,
 		screens:       make(map[screen]tea.Model),
 		help:          help.New(),
-		tabNames:      []string{"Dashboard", "Tasks", "Detail", "Epics", "Sprints", "Health"},
+		tabNames:      []string{"Dashboard", "Tasks", "Epics", "Sprints", "Health"},
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
 	m.screens[screenTaskList] = newScreenTaskList(b)
-	m.screens[screenTaskDetail] = newScreenTaskDetail(b)
 	m.screens[screenEpicTree] = newScreenEpicTree(b)
 	m.screens[screenSprintView] = newScreenSprintView(b)
 	m.screens[screenBacklogHealth] = newScreenBacklogHealth(b)
@@ -86,42 +82,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return reloadMsg{}
 			}
-		case key.Matches(msg, Keys.TabRight):
-			m.prevScreen = m.currentScreen
-			m.currentScreen = (m.currentScreen + 1) % screen(len(m.tabNames))
+		case key.Matches(msg, Keys.One):
+			m.currentScreen = screenDashboard
 			return m, nil
-		case key.Matches(msg, Keys.TabLeft):
-			m.prevScreen = m.currentScreen
-			m.currentScreen--
-			if m.currentScreen < 0 {
-				m.currentScreen = screenBacklogHealth
-			}
+		case key.Matches(msg, Keys.Two):
+			m.currentScreen = screenTaskList
 			return m, nil
-		}
-
-		if m.currentScreen == screenTaskList {
-			if key.Matches(msg, Keys.Enter) {
-				tl := m.screens[screenTaskList].(*taskListModel)
-				task := tl.SelectedTask()
-				if task != nil {
-					td := m.screens[screenTaskDetail].(*taskDetailModel)
-					td.task = task
-					td.ready = false
-					m.prevScreen = m.currentScreen
-					m.currentScreen = screenTaskDetail
-					return m, nil
-				}
-			}
-		}
-
-		if m.currentScreen == screenTaskDetail {
-			if key.Matches(msg, Keys.Back) {
-				m.currentScreen = m.prevScreen
-				if m.currentScreen == screenTaskDetail {
-					m.currentScreen = screenTaskList
-				}
-				return m, nil
-			}
+		case key.Matches(msg, Keys.Three):
+			m.currentScreen = screenEpicTree
+			return m, nil
+		case key.Matches(msg, Keys.Four):
+			m.currentScreen = screenSprintView
+			return m, nil
+		case key.Matches(msg, Keys.Five):
+			m.currentScreen = screenBacklogHealth
+			return m, nil
 		}
 
 	case reloadMsg:
@@ -138,7 +113,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Forward msg to current screen
 	if s, ok := m.screens[m.currentScreen]; ok {
 		updated, cmd := s.Update(msg)
 		m.screens[m.currentScreen] = updated
@@ -168,7 +142,7 @@ func (m *Model) View() string {
 	}
 
 	b.WriteString("\n")
-	footer := fmt.Sprintf("  %s | ? help | q quit | r reload | tab/Shift+tab navigate",
+	footer := fmt.Sprintf("  %s | 1-5 navigate | ? help | q quit | r reload",
 		m.tabNames[m.currentScreen])
 	b.WriteString(footerStyle.Render(footer))
 
