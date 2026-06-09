@@ -39,7 +39,7 @@ func New(b *model.Backlog) *Model {
 		currentScreen: screenDashboard,
 		screens:       make(map[screen]tea.Model),
 		help:          help.New(),
-		tabNames:      []string{"Dashboard", "Tasks", "Epics", "Sprints", "Health"},
+		tabNames:      []string{"1 Dashboard", "2 Tasks", "3 Epics", "4 Sprints", "5 Health"},
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
@@ -147,7 +147,7 @@ func (m *Model) View() string {
 	}
 
 	b.WriteString("\n")
-	footer := fmt.Sprintf("  %s | 1-5 navigate | ? help | q quit | r reload",
+	footer := fmt.Sprintf("  %s | ? help | q quit | r reload",
 		m.tabNames[m.currentScreen])
 	b.WriteString(footerStyle.Render(footer))
 

@@ -306,13 +306,24 @@ func truncate(s string, n int) string {
 	return s[:n-1] + "\u2026"
 }
 
+func epicToTask(ep *model.Epic) *model.Task {
+	return &model.Task{
+		ID:        ep.ID,
+		Type:      model.TypeEpic,
+		Status:    ep.Status,
+		Priority:  ep.Priority,
+		Labels:    ep.Labels,
+		Created:   ep.Created,
+		Updated:   ep.Updated,
+		Summary:   ep.Name,
+		Body:      ep.Body,
+		ProjectID: ep.ProjectID,
+	}
+}
+
 // Build a nested tree from epics → stories → tasks, then flat items
 func (s *taskListModel) buildTree(tasks []*model.Task) {
 	epics := s.backlog.AllEpics
-	taskByID := make(map[string]*model.Task)
-	for _, t := range tasks {
-		taskByID[t.ID] = t
-	}
 
 	var rows []flatRow
 	seen := make(map[string]bool)
@@ -322,11 +333,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		if ep.ProjectID != s.backlog.Current.Config.ProjectID {
 			continue
 		}
-		epTask, ok := taskByID[ep.ID]
-		if !ok {
-			continue
-		}
-		seen[ep.ID] = true
+		epTask := epicToTask(ep)
 		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
 
 		// Children of this epic (stories + tasks with epic set)
@@ -380,12 +387,14 @@ func (s *taskListModel) openDetail() {
 	s.depCursor = 0
 	s.focus = focusList
 	s.resolveLinks()
+	s.rebuild()
 }
 
 func (s *taskListModel) closeDetail() {
 	s.showDetail = false
 	s.detailTask = nil
 	s.depCursor = 0
+	s.rebuild()
 }
 
 func (s *taskListModel) resolveLinks() {
