@@ -1,0 +1,32 @@
+project_name: backlog
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - binary: backlog
+    main: .
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    env: [CGO_ENABLED=0]
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}aarch64
+      {{- else }}{{ .Arch }}{{ end }}
+checksum:
+  name_template: "checksums.txt"
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+brews:
+  - name: backlog
+    repository:
+      owner: hantsaniala
+      name: homebrew-tap
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    homepage: "https://github.com/hantsaniala/backlog"
+    description: "Terminal UI viewer for .backlog project management system"
