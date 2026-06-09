@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -337,7 +338,7 @@ func (s *taskListModel) renderTreeFull() string {
 
 	// Footer
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | / search | j/k nav | l/h expand | space toggle done | enter detail", len(s.visibleRows))
+	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit | ? help", len(s.visibleRows))
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
 
 	return b.String()
@@ -372,6 +373,16 @@ func (s *taskListModel) renderTree() string {
 		if r.task.Summary != "" {
 			label = r.task.ID + "  " + r.task.Summary
 		}
+
+		var labelStyle lipgloss.Style
+		if r.task.Type == model.TypeEpic {
+			labelStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+		} else if r.task.Type == model.TypeStory {
+			labelStyle = lipgloss.NewStyle().Foreground(colorSecondary)
+		} else {
+			labelStyle = lipgloss.NewStyle().Foreground(colorText)
+		}
+		label = labelStyle.Render(label)
 
 		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, prefix, g, label, sp, " "+statusStr)
 
@@ -453,6 +464,14 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 				children = append(children, t)
 			}
 		}
+		sort.Slice(children, func(i, j int) bool {
+			di := children[i].Status == model.StatusDone
+			dj := children[j].Status == model.StatusDone
+			if di != dj {
+				return !di
+			}
+			return children[i].ID < children[j].ID
+		})
 		for _, child := range children {
 			if child.Type == model.TypeStory {
 				seen[child.ID] = true
@@ -478,20 +497,44 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		if !seen[t.ID] && t.Type == model.TypeStory {
 			seen[t.ID] = true
 			rows = append(rows, flatRow{task: t, prefix: " └", level: 1})
+			var storyChildren []*model.Task
 			for _, child := range tasks {
 				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
-					seen[child.ID] = true
-					rows = append(rows, flatRow{task: child, prefix: "   •", level: 2})
+					storyChildren = append(storyChildren, child)
 				}
+			}
+			sort.Slice(storyChildren, func(i, j int) bool {
+				di := storyChildren[i].Status == model.StatusDone
+				dj := storyChildren[j].Status == model.StatusDone
+				if di != dj {
+					return !di
+				}
+				return storyChildren[i].ID < storyChildren[j].ID
+			})
+			for _, child := range storyChildren {
+				seen[child.ID] = true
+				rows = append(rows, flatRow{task: child, prefix: "   •", level: 2})
 			}
 		}
 	}
 
-	// Remaining items
+	// Remaining items — sort done last
+	var remaining []*model.Task
 	for _, t := range tasks {
 		if !seen[t.ID] {
-			rows = append(rows, flatRow{task: t, prefix: "", level: 0})
+			remaining = append(remaining, t)
 		}
+	}
+	sort.Slice(remaining, func(i, j int) bool {
+		di := remaining[i].Status == model.StatusDone
+		dj := remaining[j].Status == model.StatusDone
+		if di != dj {
+			return !di
+		}
+		return remaining[i].ID < remaining[j].ID
+	})
+	for _, t := range remaining {
+		rows = append(rows, flatRow{task: t, prefix: "", level: 0})
 	}
 
 	s.rows = rows
