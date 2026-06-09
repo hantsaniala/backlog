@@ -5,223 +5,374 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/table"
-	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/model"
 )
 
-type filterMode int
-
-const (
-	filterNone filterMode = iota
-	filterSearch
-	filterByStatus
-	filterByPriority
-	filterByType
-	filterByProject
-)
-
-type focusSection int
-
-const (
-	focusList focusSection = iota
-	focusContent
-	focusParent
-	focusEpic
-	focusDepends
-	focusBlocks
-	focusRelated
-)
-
 type flatRow struct {
-	task      *model.Task
-	prefix    string
-	level     int
+	task   *model.Task
+	prefix string
+	level  int
 }
+
+type viewMode int
+
+const (
+	modeTree viewMode = iota
+	modeDetail
+	modeSearch
+	modeStatusPopup
+)
 
 type taskListModel struct {
 	backlog    *model.Backlog
-	table      table.Model
-	search     textinput.Model
-	filterMode filterMode
+	width      int
+	height     int
+	mode       viewMode
+
+	// Tree
+	rows        []flatRow
+	visibleRows []flatRow
+	cursor      int
+	expanded    map[string]bool
+
+	// Tree filter
 	filterText string
-	showFilter bool
-	sortColumn int
-	sortAsc    bool
-	showAll    bool
-	rows       []flatRow
+	filterOn   bool
 
-	detailTask  *model.Task
-	focus       focusSection
-	depCursor   int
-	parentLinks  []detailLink
-	epicLinks    []detailLink
-	depLinks     []detailLink
-	blockLinks   []detailLink
-	relatedLinks []detailLink
+	// Detail
+	detailView *detailView
 
-	width          int
-	height         int
-	detailViewport viewport.Model
-	detailReady    bool
+	// Search modal
+	searchModal   *searchModalModel
+	searchRunning bool
+
+	// Status popup
+	statusPopup   *statusPopupModel
+	statusRunning bool
+
+	// Viewport for tree scrolling
+	treeViewport viewport.Model
+	treeReady    bool
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
-	ti := textinput.New()
-	ti.Placeholder = "search tasks..."
-	ti.CharLimit = 50
-
-	columns := []table.Column{
-		{Title: "Proj", Width: 6},
-		{Title: "ID", Width: 14},
-		{Title: "Status", Width: 8},
-		{Title: "Title", Width: 36},
-		{Title: "SP", Width: 4},
-		{Title: "Sprint", Width: 8},
+	m := &taskListModel{
+		backlog:  b,
+		expanded: make(map[string]bool),
 	}
-
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithFocused(true),
-		table.WithHeight(10),
-	)
-	st := table.DefaultStyles()
-	st.Header = st.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		BorderBottom(true).
-		Bold(false).
-		Foreground(colorTextDim)
-	st.Selected = st.Selected.
-		Foreground(colorTextBright).
-		Background(colorPrimary).
-		Bold(false)
-	st.Cell = st.Cell.
-		Foreground(colorText)
-	t.SetStyles(st)
-
-	tl := &taskListModel{
-		backlog: b,
-		table:   t,
-		search:  ti,
-		showAll: true,
+	m.rebuild()
+	if len(m.visibleRows) > 0 {
+		m.cursor = 0
 	}
-	tl.rebuild()
-	tl.openDetail()
-	return tl
+	return m
 }
 
 func (s *taskListModel) Init() tea.Cmd { return nil }
 
 func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Sub-model routing
+	if s.mode == modeSearch && s.searchRunning {
+		updated, cmd := s.searchModal.Update(msg)
+		s.searchModal = updated.(*searchModalModel)
+		if result, ok := <-catchMsg(cmd); ok {
+			if nav, ok := result.(SearchNavigateMsg); ok {
+				task := nav.Task
+				s.enterDetail(task)
+				s.searchRunning = false
+				s.mode = modeDetail
+				return s, nil
+			}
+			// nil = cancel
+			s.searchRunning = false
+			s.mode = modeTree
+			return s, nil
+		}
+		return s, cmd
+	}
+
+	if s.mode == modeStatusPopup && s.statusRunning {
+		updated, cmd := s.statusPopup.Update(msg)
+		s.statusPopup = updated.(*statusPopupModel)
+		if result, ok := <-catchMsg(cmd); ok {
+			if update, ok := result.(StatusUpdateMsg); ok {
+				if s.detailView != nil {
+					s.detailView.task.Status = update.NewStatus
+				}
+			}
+			s.statusRunning = false
+			s.mode = modeDetail
+			return s, nil
+		}
+		return s, cmd
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if key.Matches(msg, Keys.Filter) && !s.showFilter {
-			s.filterMode = filterSearch
-			s.showFilter = true
-			s.search.Focus()
-			return s, textinput.Blink
-		}
-
-		switch {
-		case key.Matches(msg, Keys.Enter):
-			if link := s.focusedDepLink(); link != nil && link.Task != nil {
-				s.detailTask = link.Task
-				s.depCursor = 0
-				s.resolveLinks()
-				s.updateDetailContent()
-				return s, nil
-			}
-			if s.focus == focusList {
-				s.focus = focusContent
-				return s, nil
-			}
-		case key.Matches(msg, Keys.Tab):
-			if msg.Type == tea.KeyShiftTab {
-				s.cycleDetailSection()
-			} else {
-				s.cycleFocus()
-			}
-			return s, nil
-		case key.Matches(msg, Keys.Sort):
-			s.sortColumn = (s.sortColumn + 1) % 7
-			s.rebuild()
-			return s, nil
-		case key.Matches(msg, Keys.Up):
-			if s.focus == focusContent {
-				s.detailViewport, _ = s.detailViewport.Update(msg)
-			} else if s.focus == focusList {
-				s.table, _ = s.table.Update(msg)
-				s.syncDetailFromList()
-			} else {
-				s.depCursorUp()
-			}
-			return s, nil
-		case key.Matches(msg, Keys.Down):
-			if s.focus == focusContent {
-				s.detailViewport, _ = s.detailViewport.Update(msg)
-			} else if s.focus == focusList {
-				s.table, _ = s.table.Update(msg)
-				s.syncDetailFromList()
-			} else {
-				s.depCursorDown()
-			}
-			return s, nil
+		switch s.mode {
+		case modeTree:
+			return s.handleTreeKey(msg)
+		case modeDetail:
+			return s.handleDetailKey(msg)
 		}
 
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
 		s.height = msg.Height
-		s.detailReady = false
-		s.rebuild()
+		s.treeReady = false
+		if s.detailView != nil {
+			s.detailView.width = msg.Width
+			s.detailView.height = msg.Height
+		}
+		if s.searchModal != nil {
+			s.searchModal.width = msg.Width
+			s.searchModal.height = msg.Height
+		}
 
 	case reloadMsg:
 		s.rebuild()
 	}
 
-	if s.showFilter && s.filterMode == filterSearch {
-		if km, ok := msg.(tea.KeyMsg); ok && key.Matches(km, Keys.Back) {
-			s.showFilter = false
-			s.filterMode = filterNone
-			s.search.Blur()
-			s.search.SetValue("")
-			s.filterText = ""
-			s.rebuild()
-			return s, nil
-		}
-		oldText := s.filterText
-		var cmd2 tea.Cmd
-		s.search, cmd2 = s.search.Update(msg)
-		s.filterText = s.search.Value()
-		if s.filterText != oldText {
-			s.rebuild()
-		}
-		return s, cmd2
-	}
+	return s, nil
+}
 
-	var tableCmd tea.Cmd
-	s.table, tableCmd = s.table.Update(msg)
-	return s, tableCmd
+// catchMsg is a helper to synchronously get a msg from a cmd
+func catchMsg(cmd tea.Cmd) <-chan tea.Msg {
+	ch := make(chan tea.Msg, 1)
+	if cmd == nil {
+		close(ch)
+		return ch
+	}
+	go func() {
+		ch <- cmd()
+		close(ch)
+	}()
+	return ch
+}
+
+func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, Keys.Filter):
+		s.mode = modeSearch
+		s.searchModal = newSearchModal(s.backlog, s.width, s.height)
+		s.searchRunning = true
+		return s, s.searchModal.Init()
+
+	case key.Matches(msg, Keys.Quit):
+		return s, tea.Quit
+
+	case key.Matches(msg, Keys.Up), key.Matches(msg, Keys.Down):
+		if key.Matches(msg, Keys.Up) && s.cursor > 0 {
+			s.cursor--
+		} else if key.Matches(msg, Keys.Down) && s.cursor < len(s.visibleRows)-1 {
+			s.cursor++
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Left):
+		r := s.visibleRows[s.cursor]
+		if r.task.Type == model.TypeEpic {
+			s.expanded[r.task.ID] = false
+			s.buildVisibleRows()
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Right):
+		r := s.visibleRows[s.cursor]
+		if r.task.Type == model.TypeEpic {
+			s.expanded[r.task.ID] = true
+			s.buildVisibleRows()
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Expand):
+		r := s.visibleRows[s.cursor]
+		if r.task.Type == model.TypeEpic {
+			s.expanded[r.task.ID] = !s.expanded[r.task.ID]
+			s.buildVisibleRows()
+		} else {
+			s.toggleDone(r.task)
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Enter):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			task := s.visibleRows[s.cursor].task
+			s.enterDetail(task)
+		}
+		return s, nil
+	}
+	return s, nil
+}
+
+func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, Keys.Back), key.Matches(msg, Keys.Quit):
+		s.mode = modeTree
+		return s, nil
+
+	case key.Matches(msg, Keys.Sort), key.Matches(msg, Keys.CycleStatus):
+		s.mode = modeStatusPopup
+		if s.detailView != nil {
+			s.statusPopup = newStatusPopup(s.detailView.task, 30)
+		}
+		s.statusRunning = true
+		return s, nil
+
+	case key.Matches(msg, Keys.Reload), key.Matches(msg, Keys.Related):
+		if s.detailView != nil {
+			s.detailView.resolveLinks()
+			s.detailView.state = detailRelated
+			s.detailView.relatedCursor = 0
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Enter):
+		if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
+			link := s.detailView.relatedItems[s.detailView.relatedCursor]
+			if link.Task != nil {
+				s.detailView.previewTask = link.Task
+				s.detailView.state = detailPreview
+			}
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Up):
+		if s.detailView != nil && s.detailView.state == detailRelated {
+			if s.detailView.relatedCursor > 0 {
+				s.detailView.relatedCursor--
+			}
+		}
+		return s, nil
+
+	case key.Matches(msg, Keys.Down):
+		if s.detailView != nil && s.detailView.state == detailRelated {
+			if s.detailView.relatedCursor < len(s.detailView.relatedItems)-1 {
+				s.detailView.relatedCursor++
+			}
+		}
+		return s, nil
+	}
+	return s, nil
+}
+
+func (s *taskListModel) enterDetail(task *model.Task) {
+	dv := newDetailView(s.backlog, task, s.width, s.height)
+	dv.resolveLinks()
+	s.detailView = dv
+	s.mode = modeDetail
+}
+
+func (s *taskListModel) toggleDone(task *model.Task) {
+	if task.Status == model.StatusDone {
+		task.Status = model.StatusTodo
+	} else {
+		task.Status = model.StatusDone
+	}
+	s.rebuild()
+	// Sync detail if open
+	if s.detailView != nil && s.detailView.task.ID == task.ID {
+		s.detailView.task.Status = task.Status
+	}
 }
 
 func (s *taskListModel) View() string {
+	switch s.mode {
+	case modeDetail:
+		if s.detailView != nil {
+			v := s.detailView.View()
+			if s.mode == modeStatusPopup && s.statusRunning && s.statusPopup != nil {
+				popup := s.statusPopup.View()
+				v = lipgloss.Place(s.width, s.height, lipgloss.Center, lipgloss.Center, popup)
+			}
+			return v
+		}
+		return ""
+	case modeSearch:
+		if s.searchRunning && s.searchModal != nil {
+			return s.searchModal.View()
+		}
+		return ""
+	default:
+		return s.renderTreeFull()
+	}
+}
+
+func (s *taskListModel) renderTreeFull() string {
 	var b strings.Builder
 
-	if s.showFilter {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(s.search.View()))
-	} else {
+	if s.filterOn {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(fmt.Sprintf(" Filter: %s", s.filterText)))
 		b.WriteString("\n")
 	}
 
-	listView := s.table.View()
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, s.detailViewport.View()))
+	content := s.renderTree()
+	treeH := s.height - 6
+	if treeH < 5 {
+		treeH = 5
+	}
 
+	if !s.treeReady {
+		s.treeViewport = viewport.New(s.width-4, treeH)
+		s.treeReady = true
+	}
+	s.treeViewport.Width = s.width - 4
+	s.treeViewport.Height = treeH
+	s.treeViewport.SetContent(content)
+
+	b.WriteString(s.treeViewport.View())
+
+	// Footer
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | 1-5 screens | / search | s sort | Tab cycle | Enter open dep", len(s.rows))
+	info := fmt.Sprintf("%d items | / search | j/k nav | l/h expand | space toggle done | enter detail", len(s.visibleRows))
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
+
+	return b.String()
+}
+
+func (s *taskListModel) renderTree() string {
+	var b strings.Builder
+
+	for i, r := range s.visibleRows {
+		prefix := r.prefix
+		indent := strings.Repeat(" ", r.level)
+
+		// Expand indicator for epics
+		expandSymbol := " "
+		if r.task.Type == model.TypeEpic {
+			if s.expanded[r.task.ID] {
+				expandSymbol = "▼"
+			} else {
+				expandSymbol = "▶"
+			}
+		}
+
+		g := statusDot(string(r.task.Status))
+		statusStr := StatusBadge(string(r.task.Status))
+
+		sp := ""
+		if r.task.StoryPoints != nil {
+			sp = lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf(" %dsp", *r.task.StoryPoints))
+		}
+
+		label := r.task.ID
+		if r.task.Summary != "" {
+			label = r.task.ID + "  " + r.task.Summary
+		}
+
+		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, prefix, g, label, sp, " "+statusStr)
+
+		if i == s.cursor {
+			line = leftBorderBar + focusedRowStyle.Render(line)
+		} else {
+			line = " " + line
+		}
+
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 
 	return b.String()
 }
@@ -229,97 +380,117 @@ func (s *taskListModel) View() string {
 func (s *taskListModel) rebuild() {
 	filtered := s.filterTasks()
 	s.buildTree(filtered)
-
-	showType := false
-	for _, r := range s.rows {
-		if r.task.Type != model.TypeTask {
-			showType = true
-			break
-		}
+	s.buildVisibleRows()
+	// Clamp cursor
+	if s.cursor >= len(s.visibleRows) && len(s.visibleRows) > 0 {
+		s.cursor = len(s.visibleRows) - 1
+	} else if len(s.visibleRows) == 0 {
+		s.cursor = 0
 	}
-
-	avail := 80
-	if s.width > 0 {
-		avail = s.width - 4
-		detailW := s.width / 2
-		if detailW < 40 {
-			detailW = 40
-		}
-		if detailW > 65 {
-			detailW = 65
-		}
-		avail = s.width - 4 - detailW
-	}
-	if avail < 40 {
-		avail = 40
-	}
-
-	fixedWidth := 6 + 14 + 8 + 4 + 8 // Proj+ID+Status+SP+Sprint
-	if showType {
-		fixedWidth += 4
-	}
-	titleW := avail - fixedWidth
-	if titleW < 10 {
-		titleW = 10
-	}
-
-	cols := []table.Column{
-		{Title: "Proj", Width: 6},
-		{Title: "ID", Width: 14},
-	}
-	if showType {
-		cols = append(cols, table.Column{Title: "T", Width: 4})
-	}
-	cols = append(cols,
-		table.Column{Title: "Status", Width: 8},
-		table.Column{Title: "Title", Width: titleW},
-		table.Column{Title: "SP", Width: 4},
-		table.Column{Title: "Sprint", Width: 8},
-	)
-	s.table.SetColumns(cols)
-
-	rows := make([]table.Row, 0, len(s.rows))
-	for _, r := range s.rows {
-		t := r.task
-		sp := ""
-		if t.StoryPoints != nil {
-			sp = fmt.Sprintf("%d", *t.StoryPoints)
-		}
-		pid := strings.Split(t.ID, "-")[0]
-		if len(pid) > 4 {
-			pid = pid[:4]
-		}
-
-		title := truncate(r.prefix+t.Summary, titleW)
-		if title == "" {
-			title = truncate(r.prefix+t.ID, titleW)
-		}
-
-		statusStr := fmt.Sprintf("%s %s", statusDot(string(t.Status)), shortStatus(string(t.Status)))
-
-		row := table.Row{pid, t.ID}
-		if showType {
-			row = append(row, typeDot(string(t.Type)))
-		}
-		row = append(row, statusStr, title, sp, t.Sprint)
-		rows = append(rows, row)
-	}
-	s.table.SetRows(rows)
-	tableH := s.height - 6
-	if tableH < 5 {
-		tableH = 5
-	}
-	s.table.SetHeight(tableH)
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+func (s *taskListModel) buildVisibleRows() {
+	var out []flatRow
+	var currentEpic string
+	epicExpanded := true
+	for _, r := range s.rows {
+		if r.task.Type == model.TypeEpic {
+			currentEpic = r.task.ID
+			_, epicExpanded = s.expanded[currentEpic]
+			if !epicExpanded {
+				// Only show the epic row itself
+				out = append(out, r)
+			} else {
+				out = append(out, r)
+			}
+		} else {
+			if epicExpanded || currentEpic == "" {
+				out = append(out, r)
+			}
+		}
 	}
-	if n <= 3 {
-		return s[:n]
+	s.visibleRows = out
+}
+
+func (s *taskListModel) buildTree(tasks []*model.Task) {
+	epics := s.backlog.AllEpics
+
+	var rows []flatRow
+	seen := make(map[string]bool)
+
+	// Epics first
+	for _, ep := range epics {
+		if ep.ProjectID != s.backlog.Current.Config.ProjectID {
+			continue
+		}
+		epTask := epicToTask(ep)
+		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
+
+		var children []*model.Task
+		for _, t := range tasks {
+			if t.Epic == ep.ID && t.ID != ep.ID {
+				children = append(children, t)
+			}
+		}
+		for _, child := range children {
+			if child.Type == model.TypeStory {
+				seen[child.ID] = true
+				rows = append(rows, flatRow{task: child, prefix: " └", level: 1})
+				for _, t := range children {
+					if t.Parent == child.ID && t.ID != child.ID {
+						seen[t.ID] = true
+						rows = append(rows, flatRow{task: t, prefix: "   •", level: 2})
+					}
+				}
+			}
+		}
+		for _, child := range children {
+			if !seen[child.ID] && child.Type == model.TypeTask {
+				seen[child.ID] = true
+				rows = append(rows, flatRow{task: child, prefix: " └", level: 1})
+			}
+		}
 	}
-	return s[:n-1] + "\u2026"
+
+	// Stories without epic
+	for _, t := range tasks {
+		if !seen[t.ID] && t.Type == model.TypeStory {
+			seen[t.ID] = true
+			rows = append(rows, flatRow{task: t, prefix: " └", level: 1})
+			for _, child := range tasks {
+				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
+					seen[child.ID] = true
+					rows = append(rows, flatRow{task: child, prefix: "   •", level: 2})
+				}
+			}
+		}
+	}
+
+	// Remaining items
+	for _, t := range tasks {
+		if !seen[t.ID] {
+			rows = append(rows, flatRow{task: t, prefix: "", level: 0})
+		}
+	}
+
+	s.rows = rows
+}
+
+func (s *taskListModel) filterTasks() []*model.Task {
+	tasks := s.backlog.AllTasks
+	if s.filterText == "" {
+		return tasks
+	}
+	lower := strings.ToLower(s.filterText)
+	var filtered []*model.Task
+	for _, t := range tasks {
+		if strings.Contains(strings.ToLower(t.ID), lower) ||
+			strings.Contains(strings.ToLower(t.Summary), lower) ||
+			strings.Contains(strings.ToLower(t.Assignee), lower) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }
 
 func epicToTask(ep *model.Epic) *model.Task {
@@ -335,316 +506,4 @@ func epicToTask(ep *model.Epic) *model.Task {
 		Body:      ep.Body,
 		ProjectID: ep.ProjectID,
 	}
-}
-
-// Build a nested tree from epics → stories → tasks, then flat items
-func (s *taskListModel) buildTree(tasks []*model.Task) {
-	epics := s.backlog.AllEpics
-
-	var rows []flatRow
-	seen := make(map[string]bool)
-
-	// Epics first
-	for _, ep := range epics {
-		if ep.ProjectID != s.backlog.Current.Config.ProjectID {
-			continue
-		}
-		epTask := epicToTask(ep)
-		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
-
-		// Children of this epic (stories + tasks with epic set)
-		var children []*model.Task
-		for _, t := range tasks {
-			if t.Epic == ep.ID && t.ID != ep.ID {
-				children = append(children, t)
-			}
-		}
-		for _, child := range children {
-			if child.Type == model.TypeStory {
-				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: "  \u251C ", level: 1})
-				// Tasks under this story
-				for _, t := range children {
-					if t.Parent == child.ID && t.ID != child.ID {
-						seen[t.ID] = true
-						rows = append(rows, flatRow{task: t, prefix: "  \u2502   \u2514 ", level: 2})
-					}
-				}
-			}
-		}
-		// Tasks directly under epic (not under a story)
-		for _, child := range children {
-			if !seen[child.ID] && child.Type == model.TypeTask {
-				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: "  \u2514 ", level: 1})
-			}
-		}
-	}
-
-	// Stories without epic — show with nested tasks
-	for _, t := range tasks {
-		if !seen[t.ID] && t.Type == model.TypeStory {
-			seen[t.ID] = true
-			rows = append(rows, flatRow{task: t, prefix: "  └ ", level: 1})
-			for _, child := range tasks {
-				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
-					seen[child.ID] = true
-					rows = append(rows, flatRow{task: child, prefix: "    • ", level: 2})
-				}
-			}
-		}
-	}
-
-	// Remaining items (no epic, no story parent)
-	for _, t := range tasks {
-		if !seen[t.ID] {
-			rows = append(rows, flatRow{task: t, prefix: "", level: 0})
-		}
-	}
-
-	s.rows = rows
-}
-
-// Detail panel management
-
-func (s *taskListModel) openDetail() {
-	task := s.SelectedTask()
-	if task == nil {
-		return
-	}
-	s.detailTask = task
-	s.depCursor = 0
-	s.focus = focusList
-	s.resolveLinks()
-	s.updateDetailContent()
-	s.rebuild()
-}
-
-func (s *taskListModel) syncDetailFromList() {
-	task := s.SelectedTask()
-	if task != nil && task != s.detailTask {
-		s.detailTask = task
-		s.depCursor = 0
-		s.resolveLinks()
-		s.updateDetailContent()
-	}
-}
-
-func (s *taskListModel) updateDetailContent() {
-	detailW := s.width / 2
-	if detailW < 40 {
-		detailW = 40
-	}
-	if detailW > 65 {
-		detailW = 65
-	}
-	content := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
-	viewportH := s.height - 6
-	if viewportH < 10 {
-		viewportH = 10
-	}
-	if !s.detailReady {
-		s.detailViewport = viewport.New(detailW, viewportH)
-		s.detailViewport.SetContent(content)
-		s.detailReady = true
-	} else {
-		s.detailViewport.SetContent(content)
-		s.detailViewport.GotoTop()
-	}
-}
-
-func (s *taskListModel) resolveLinks() {
-	if s.detailTask == nil {
-		return
-	}
-	s.parentLinks = resolveDetailLinks(filterEmpty([]string{s.detailTask.Parent}), s.backlog)
-	s.epicLinks = resolveDetailLinks(filterEmpty([]string{s.detailTask.Epic}), s.backlog)
-	s.depLinks = resolveDetailLinks(s.detailTask.DependsOn, s.backlog)
-	s.blockLinks = resolveDetailLinks(s.detailTask.Blocks, s.backlog)
-	s.relatedLinks = resolveDetailLinks(s.detailTask.RelatedTo, s.backlog)
-}
-
-func filterEmpty(ids []string) []string {
-	var out []string
-	for _, id := range ids {
-		if id != "" {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-func (s *taskListModel) cycleFocus() {
-	// Toggle between list and content pane
-	if s.focus == focusList {
-		s.focus = focusContent
-	} else {
-		s.focus = focusList
-	}
-	s.depCursor = 0
-}
-
-func (s *taskListModel) cycleDetailSection() {
-	sections := s.detailSections()
-	if len(sections) == 0 {
-		return
-	}
-	// If currently not in a detail section, start at content
-	for i, sec := range sections {
-		if sec == s.focus {
-			s.focus = sections[(i+1)%len(sections)]
-			s.depCursor = 0
-			return
-		}
-	}
-	s.focus = focusContent
-	s.depCursor = 0
-}
-
-func (s *taskListModel) detailSections() []focusSection {
-	secs := []focusSection{focusContent}
-	if len(s.parentLinks) > 0 {
-		secs = append(secs, focusParent)
-	}
-	if len(s.epicLinks) > 0 {
-		secs = append(secs, focusEpic)
-	}
-	if len(s.depLinks) > 0 {
-		secs = append(secs, focusDepends)
-	}
-	if len(s.blockLinks) > 0 {
-		secs = append(secs, focusBlocks)
-	}
-	if len(s.relatedLinks) > 0 {
-		secs = append(secs, focusRelated)
-	}
-	return secs
-}
-
-func (s *taskListModel) focusSectionName() string {
-	switch s.focus {
-	case focusList:
-		return "list"
-	case focusContent:
-		return "content"
-	case focusParent:
-		return "parent"
-	case focusEpic:
-		return "epic"
-	case focusDepends:
-		return "depends"
-	case focusBlocks:
-		return "blocks"
-	case focusRelated:
-		return "related"
-	default:
-		return ""
-	}
-}
-
-func (s *taskListModel) depCursorUp() {
-	if s.depCursor > 0 {
-		s.depCursor--
-	}
-}
-
-func (s *taskListModel) depCursorDown() {
-	if s.depCursor < s.focusedDepCount()-1 {
-		s.depCursor++
-	}
-}
-
-func (s *taskListModel) focusedDepCount() int {
-	switch s.focus {
-	case focusParent:
-		return len(s.parentLinks)
-	case focusEpic:
-		return len(s.epicLinks)
-	case focusDepends:
-		return len(s.depLinks)
-	case focusBlocks:
-		return len(s.blockLinks)
-	case focusRelated:
-		return len(s.relatedLinks)
-	default:
-		return 0
-	}
-}
-
-func (s *taskListModel) focusedDepLink() *detailLink {
-	var links []detailLink
-	switch s.focus {
-	case focusParent:
-		links = s.parentLinks
-	case focusEpic:
-		links = s.epicLinks
-	case focusDepends:
-		links = s.depLinks
-	case focusBlocks:
-		links = s.blockLinks
-	case focusRelated:
-		links = s.relatedLinks
-	default:
-		return nil
-	}
-	if s.depCursor >= 0 && s.depCursor < len(links) {
-		return &links[s.depCursor]
-	}
-	return nil
-}
-
-func (s *taskListModel) SelectedTask() *model.Task {
-	if len(s.rows) == 0 {
-		return nil
-	}
-	row := s.table.Cursor()
-	if row >= 0 && row < len(s.rows) {
-		return s.rows[row].task
-	}
-	return nil
-}
-
-func shortStatus(s string) string {
-	switch s {
-	case "todo":
-		return "todo"
-	case "in-progress":
-		return "prog"
-	case "review":
-		return "rvw"
-	case "on-hold":
-		return "hold"
-	case "done":
-		return "done"
-	case "cancelled":
-		return "canc"
-	default:
-		return s
-	}
-}
-
-func (s *taskListModel) filterTasks() []*model.Task {
-	tasks := s.backlog.AllTasks
-	if !s.showAll {
-		var filtered []*model.Task
-		for _, t := range tasks {
-			if t.ProjectID == s.backlog.Current.Config.ProjectID {
-				filtered = append(filtered, t)
-			}
-		}
-		tasks = filtered
-	}
-	if s.filterText == "" {
-		return tasks
-	}
-	lower := strings.ToLower(s.filterText)
-	var filtered []*model.Task
-	for _, t := range tasks {
-		if strings.Contains(strings.ToLower(t.ID), lower) ||
-			strings.Contains(strings.ToLower(t.Summary), lower) ||
-			strings.Contains(strings.ToLower(t.Assignee), lower) {
-			filtered = append(filtered, t)
-		}
-	}
-	return filtered
 }

@@ -62,6 +62,24 @@ var (
 		"done":        "●",
 		"cancelled":   "⊗",
 	}
+
+	// Popup styles
+	popupStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPrimary).
+			Padding(1, 2).
+			Background(colorSurface)
+
+	overlayStyle = lipgloss.NewStyle().
+			Background(colorBg)
+
+	// Tree row styles
+	focusedRowStyle = lipgloss.NewStyle().
+			Background(colorSurfaceAlt)
+
+	leftBorderBar = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Render("▎")
 )
 
 func StatusBadge(status string) string {
@@ -121,6 +139,28 @@ func typeDot(t string) string {
 	return lipgloss.NewStyle().Foreground(c).Render("●")
 }
 
+func typeBadge(t string) string {
+	var c lipgloss.Color
+	switch t {
+	case "bug":
+		c = colorError
+	case "story":
+		c = colorSecondary
+	case "spike":
+		c = colorWarning
+	case "chore":
+		c = colorTextDim
+	default:
+		c = colorPrimary
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#1E1E2E")).
+		Background(c).
+		Bold(true).
+		Padding(0, 1).
+		Render(t)
+}
+
 func sectionHeader(title string, color lipgloss.Color, width int) string {
 	line := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width-2))
 	return fmt.Sprintf(" %s %s %s", lipgloss.NewStyle().Foreground(color).Render("┃"), title, line)
@@ -158,4 +198,23 @@ func ExternalBadge() string {
 		Background(colorTextDim).
 		Padding(0, 1).
 		Render("ext")
+}
+
+func shortStatus(s string) string {
+	switch s {
+	case "todo":
+		return "todo"
+	case "in-progress":
+		return "prog"
+	case "review":
+		return "rvw"
+	case "on-hold":
+		return "hold"
+	case "done":
+		return "done"
+	case "cancelled":
+		return "canc"
+	default:
+		return s
+	}
 }
