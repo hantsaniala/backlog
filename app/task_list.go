@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -174,26 +175,32 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, Keys.Left):
 		r := s.visibleRows[s.cursor]
+		fmt.Fprintf(os.Stderr, "LEFT: cursor=%d type=%s id=%s isEpic=%v\n", s.cursor, r.task.Type, r.task.ID, r.task.Type == model.TypeEpic)
 		if r.task.Type == model.TypeEpic {
 			s.expanded[r.task.ID] = false
 			s.buildVisibleRows()
 			s.clampCursor()
+			fmt.Fprintf(os.Stderr, "LEFT: after collapse visibleRows=%d cursor=%d expanded=%v\n", len(s.visibleRows), s.cursor, s.expanded[r.task.ID])
 		}
 		return s, nil
 
 	case key.Matches(msg, Keys.Right):
 		r := s.visibleRows[s.cursor]
+		fmt.Fprintf(os.Stderr, "RIGHT: cursor=%d type=%s id=%s isEpic=%v\n", s.cursor, r.task.Type, r.task.ID, r.task.Type == model.TypeEpic)
 		if r.task.Type == model.TypeEpic {
 			s.expanded[r.task.ID] = true
 			s.buildVisibleRows()
 			s.clampCursor()
+			fmt.Fprintf(os.Stderr, "RIGHT: after expand visibleRows=%d cursor=%d expanded=%v\n", len(s.visibleRows), s.cursor, s.expanded[r.task.ID])
 		}
 		return s, nil
 
 	case key.Matches(msg, Keys.Expand):
 		r := s.visibleRows[s.cursor]
 		if r.task.Type == model.TypeEpic {
+			oldVal := s.expanded[r.task.ID]
 			s.expanded[r.task.ID] = !s.expanded[r.task.ID]
+			fmt.Fprintf(os.Stderr, "SPACE: cursor=%d id=%s expanded %v->%v\n", s.cursor, r.task.ID, oldVal, s.expanded[r.task.ID])
 			s.buildVisibleRows()
 			s.clampCursor()
 		} else {

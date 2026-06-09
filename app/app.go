@@ -16,7 +16,6 @@ type screen int
 const (
 	screenDashboard screen = iota
 	screenTaskList
-	screenEpicTree
 	screenSprintView
 )
 
@@ -38,12 +37,11 @@ func New(b *model.Backlog) *Model {
 		currentScreen: screenDashboard,
 		screens:       make(map[screen]tea.Model),
 		help:          help.New(),
-		tabNames:      []string{"1 Dashboard", "2 Tasks", "3 Epics", "4 Sprints"},
+		tabNames:      []string{"1 Dashboard", "2 Tasks", "3 Sprints"},
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
 	m.screens[screenTaskList] = newScreenTaskList(b)
-	m.screens[screenEpicTree] = newScreenEpicTree(b)
 	m.screens[screenSprintView] = newScreenSprintView(b)
 
 	return m
@@ -92,9 +90,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentScreen = screenTaskList
 			return m, nil
 		case key.Matches(msg, Keys.Three):
-			m.currentScreen = screenEpicTree
-			return m, nil
-		case key.Matches(msg, Keys.Four):
 			m.currentScreen = screenSprintView
 			return m, nil
 		}
