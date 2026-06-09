@@ -77,8 +77,8 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 	columns := []table.Column{
 		{Title: "Proj", Width: 6},
 		{Title: "ID", Width: 14},
-		{Title: "St", Width: 4},
-		{Title: "Title", Width: 40},
+		{Title: "Status", Width: 8},
+		{Title: "Title", Width: 36},
 		{Title: "SP", Width: 4},
 		{Title: "Sprint", Width: 8},
 	}
@@ -140,7 +140,11 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, nil
 			}
 		case key.Matches(msg, Keys.Tab):
-			s.cycleFocus()
+			if msg.Type == tea.KeyShiftTab {
+				s.cycleDetailSection()
+			} else {
+				s.cycleFocus()
+			}
 			return s, nil
 		case key.Matches(msg, Keys.Sort):
 			s.sortColumn = (s.sortColumn + 1) % 7
@@ -237,12 +241,12 @@ func (s *taskListModel) rebuild() {
 	avail := 80
 	if s.width > 0 {
 		avail = s.width - 4
-		detailW := s.width * 2 / 5
-		if detailW < 35 {
-			detailW = 35
+		detailW := s.width / 2
+		if detailW < 40 {
+			detailW = 40
 		}
-		if detailW > 55 {
-			detailW = 55
+		if detailW > 65 {
+			detailW = 65
 		}
 		avail = s.width - 4 - detailW
 	}
@@ -250,7 +254,7 @@ func (s *taskListModel) rebuild() {
 		avail = 40
 	}
 
-	fixedWidth := 6 + 14 + 4 + 4 + 8 // Proj+ID+St+SP+Sprint
+	fixedWidth := 6 + 14 + 8 + 4 + 8 // Proj+ID+Status+SP+Sprint
 	if showType {
 		fixedWidth += 4
 	}
@@ -267,7 +271,7 @@ func (s *taskListModel) rebuild() {
 		cols = append(cols, table.Column{Title: "T", Width: 4})
 	}
 	cols = append(cols,
-		table.Column{Title: "St", Width: 4},
+		table.Column{Title: "Status", Width: 8},
 		table.Column{Title: "Title", Width: titleW},
 		table.Column{Title: "SP", Width: 4},
 		table.Column{Title: "Sprint", Width: 8},
@@ -291,13 +295,13 @@ func (s *taskListModel) rebuild() {
 			title = truncate(r.prefix+t.ID, titleW)
 		}
 
-		glyph := statusDot(string(t.Status))
+		statusStr := fmt.Sprintf("%s %s", statusDot(string(t.Status)), shortStatus(string(t.Status)))
 
 		row := table.Row{pid, t.ID}
 		if showType {
 			row = append(row, typeDot(string(t.Type)))
 		}
-		row = append(row, glyph, title, sp, t.Sprint)
+		row = append(row, statusStr, title, sp, t.Sprint)
 		rows = append(rows, row)
 	}
 	s.table.SetRows(rows)
@@ -413,12 +417,12 @@ func (s *taskListModel) syncDetailFromList() {
 }
 
 func (s *taskListModel) updateDetailContent() {
-	detailW := s.width * 2 / 5
-	if detailW < 35 {
-		detailW = 35
+	detailW := s.width / 2
+	if detailW < 40 {
+		detailW = 40
 	}
-	if detailW > 55 {
-		detailW = 55
+	if detailW > 65 {
+		detailW = 65
 	}
 	content := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
 	viewportH := s.height - 6
@@ -457,7 +461,21 @@ func filterEmpty(ids []string) []string {
 }
 
 func (s *taskListModel) cycleFocus() {
-	sections := s.activeSections()
+	// Toggle between list and content pane
+	if s.focus == focusList {
+		s.focus = focusContent
+	} else {
+		s.focus = focusList
+	}
+	s.depCursor = 0
+}
+
+func (s *taskListModel) cycleDetailSection() {
+	sections := s.detailSections()
+	if len(sections) == 0 {
+		return
+	}
+	// If currently not in a detail section, start at content
 	for i, sec := range sections {
 		if sec == s.focus {
 			s.focus = sections[(i+1)%len(sections)]
@@ -465,12 +483,12 @@ func (s *taskListModel) cycleFocus() {
 			return
 		}
 	}
-	s.focus = focusList
+	s.focus = focusContent
 	s.depCursor = 0
 }
 
-func (s *taskListModel) activeSections() []focusSection {
-	secs := []focusSection{focusList, focusContent}
+func (s *taskListModel) detailSections() []focusSection {
+	secs := []focusSection{focusContent}
 	if len(s.parentLinks) > 0 {
 		secs = append(secs, focusParent)
 	}
@@ -570,6 +588,25 @@ func (s *taskListModel) SelectedTask() *model.Task {
 		return s.rows[row].task
 	}
 	return nil
+}
+
+func shortStatus(s string) string {
+	switch s {
+	case "todo":
+		return "todo"
+	case "in-progress":
+		return "prog"
+	case "review":
+		return "rvw"
+	case "on-hold":
+		return "hold"
+	case "done":
+		return "done"
+	case "cancelled":
+		return "canc"
+	default:
+		return s
+	}
 }
 
 func (s *taskListModel) filterTasks() []*model.Task {
