@@ -48,6 +48,9 @@ func newDetailView(b *model.Backlog, t *model.Task, w, h int) *detailView {
 
 func (d *detailView) resolveLinks() {
 	d.relatedItems = nil
+	if d.task == nil {
+		return
+	}
 	addLinks := func(ids []string) {
 		for _, id := range ids {
 			if id == "" {
@@ -69,6 +72,9 @@ func (d *detailView) resolveLinks() {
 }
 
 func (d *detailView) View() string {
+	if d.task == nil {
+		return ""
+	}
 	if d.state == detailRelated && len(d.relatedItems) > 0 {
 		return d.renderRelatedPopup()
 	}
@@ -145,7 +151,10 @@ func (d *detailView) renderMain() string {
 		right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(" Links"))
 		right.WriteString("\n")
 		for _, link := range d.relatedItems {
-			g := statusDot(string(link.Task.Status))
+			g := "◌"
+			if link.Task != nil {
+				g = statusDot(string(link.Task.Status))
+			}
 			right.WriteString(fmt.Sprintf("  ▸ %s %s\n", g, link.Label))
 		}
 	}
@@ -189,7 +198,10 @@ func (d *detailView) renderRelatedPopup() string {
 	b.WriteString("\n\n")
 
 	for i, link := range d.relatedItems {
-		g := statusDot(string(link.Task.Status))
+		g := "◌"
+		if link.Task != nil {
+			g = statusDot(string(link.Task.Status))
+		}
 		line := fmt.Sprintf(" %s %s", g, link.Label)
 		if i == d.relatedCursor {
 			line = lipgloss.NewStyle().
@@ -223,6 +235,9 @@ func (d *detailView) renderRelatedPopup() string {
 
 func (d *detailView) renderPreviewPopup() string {
 	t := d.previewTask
+	if t == nil {
+		return ""
+	}
 	var b strings.Builder
 
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(
