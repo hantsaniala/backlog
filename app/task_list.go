@@ -169,6 +169,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if key.Matches(msg, Keys.Down) && s.cursor < len(s.visibleRows)-1 {
 			s.cursor++
 		}
+		s.clampCursor()
 		return s, nil
 
 	case key.Matches(msg, Keys.Left):
@@ -176,6 +177,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.task.Type == model.TypeEpic {
 			s.expanded[r.task.ID] = false
 			s.buildVisibleRows()
+			s.clampCursor()
 		}
 		return s, nil
 
@@ -184,6 +186,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.task.Type == model.TypeEpic {
 			s.expanded[r.task.ID] = true
 			s.buildVisibleRows()
+			s.clampCursor()
 		}
 		return s, nil
 
@@ -192,6 +195,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r.task.Type == model.TypeEpic {
 			s.expanded[r.task.ID] = !s.expanded[r.task.ID]
 			s.buildVisibleRows()
+			s.clampCursor()
 		} else {
 			s.toggleDone(r.task)
 		}
@@ -375,6 +379,16 @@ func (s *taskListModel) renderTree() string {
 	}
 
 	return b.String()
+}
+
+func (s *taskListModel) clampCursor() {
+	if len(s.visibleRows) == 0 {
+		s.cursor = 0
+		return
+	}
+	if s.cursor >= len(s.visibleRows) {
+		s.cursor = len(s.visibleRows) - 1
+	}
 }
 
 func (s *taskListModel) rebuild() {

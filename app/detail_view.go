@@ -182,8 +182,6 @@ func (d *detailView) renderMain() string {
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	detailStyle := lipgloss.NewStyle().
-		Width(d.width).
-		Height(d.height).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorPrimary).
 		Padding(0, 1)
