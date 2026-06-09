@@ -55,7 +55,7 @@ func LoadBacklog(backlogRoot string) (*Backlog, error) {
 
 	// Load external projects
 	for prefix, relPath := range current.Config.ExternalProjects {
-		absPath := resolvePath(backlogRoot, relPath)
+		absPath := resolvePath(filepath.Dir(backlogRoot), relPath)
 		if visited[absPath] {
 			continue
 		}

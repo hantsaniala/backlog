@@ -452,9 +452,6 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 
 	// Epics first
 	for _, ep := range epics {
-		if ep.ProjectID != s.backlog.Current.Config.ProjectID {
-			continue
-		}
 		epTask := epicToTask(ep)
 		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
 
@@ -558,6 +555,21 @@ func (s *taskListModel) filterTasks() []*model.Task {
 }
 
 func epicToTask(ep *model.Epic) *model.Task {
+	summary := ep.Name
+	if summary == "" && ep.Body != "" {
+		for _, line := range strings.Split(ep.Body, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "## Summary" {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "## ") {
+				break
+			}
+			if trimmed != "" && summary == "" {
+				summary = trimmed
+			}
+		}
+	}
 	return &model.Task{
 		ID:        ep.ID,
 		Type:      model.TypeEpic,
@@ -566,7 +578,7 @@ func epicToTask(ep *model.Epic) *model.Task {
 		Labels:    ep.Labels,
 		Created:   ep.Created,
 		Updated:   ep.Updated,
-		Summary:   ep.Name,
+		Summary:   summary,
 		Body:      ep.Body,
 		ProjectID: ep.ProjectID,
 	}
