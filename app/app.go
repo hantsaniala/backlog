@@ -65,6 +65,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.help.Width = msg.Width
+		for _, s := range m.screens {
+			if u, ok := s.(tea.Model); ok {
+				u.Update(msg)
+			}
+		}
 
 	case tea.KeyMsg:
 		switch {

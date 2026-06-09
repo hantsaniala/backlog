@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -35,6 +34,12 @@ const (
 	focusRelated
 )
 
+type flatRow struct {
+	task      *model.Task
+	prefix    string
+	level     int
+}
+
 type taskListModel struct {
 	backlog    *model.Backlog
 	table      table.Model
@@ -45,7 +50,7 @@ type taskListModel struct {
 	sortColumn int
 	sortAsc    bool
 	showAll    bool
-	tasks      []*model.Task
+	rows       []flatRow
 
 	showDetail  bool
 	detailTask  *model.Task
@@ -55,6 +60,8 @@ type taskListModel struct {
 	depLinks    []detailLink
 	blockLinks  []detailLink
 	relatedLinks []detailLink
+
+	width int
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
@@ -67,8 +74,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		{Title: "ID", Width: 16},
 		{Title: "Type", Width: 8},
 		{Title: "Status", Width: 12},
-		{Title: "Priority", Width: 10},
-		{Title: "Assignee", Width: 12},
+		{Title: "Title", Width: 30},
 		{Title: "SP", Width: 4},
 		{Title: "Sprint", Width: 10},
 	}
@@ -78,29 +84,28 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		table.WithFocused(true),
 		table.WithHeight(20),
 	)
-	s := table.DefaultStyles()
-	s.Header = s.Header.
+	st := table.DefaultStyles()
+	st.Header = st.Header.
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(colorBorder).
 		BorderBottom(true).
 		Bold(false).
 		Foreground(colorTextDim)
-	s.Selected = s.Selected.
+	st.Selected = st.Selected.
 		Foreground(colorTextBright).
 		Background(colorPrimary).
 		Bold(false)
-	s.Cell = s.Cell.
+	st.Cell = st.Cell.
 		Foreground(colorText)
-	t.SetStyles(s)
+	t.SetStyles(st)
 
 	tl := &taskListModel{
 		backlog: b,
 		table:   t,
 		search:  ti,
 		showAll: true,
-		tasks:   b.AllTasks,
 	}
-	tl.refresh()
+	tl.rebuild()
 	return tl
 }
 
@@ -109,7 +114,6 @@ func (s *taskListModel) Init() tea.Cmd { return nil }
 func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global-ish keys: filter always works
 		if key.Matches(msg, Keys.Filter) && !s.showFilter {
 			s.filterMode = filterSearch
 			s.showFilter = true
@@ -117,23 +121,19 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, textinput.Blink
 		}
 
-		// Detail panel navigation
 		if s.showDetail {
 			switch {
 			case key.Matches(msg, Keys.Enter):
-				// Enter on a dep link opens that task in the panel
 				if link := s.focusedDepLink(); link != nil && link.Task != nil {
 					s.detailTask = link.Task
 					s.depCursor = 0
 					s.resolveLinks()
 					return s, nil
 				}
-				// Enter on close or already on list → close
 				if s.focus == focusClose || s.focus == focusList {
 					s.closeDetail()
 					return s, nil
 				}
-				// Enter on a section header with no focusable item → close
 				s.closeDetail()
 				return s, nil
 			case key.Matches(msg, Keys.Back):
@@ -150,33 +150,33 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return s, nil
 			}
 		} else {
-			// No detail panel open
 			switch {
 			case key.Matches(msg, Keys.Enter):
 				s.openDetail()
 				return s, nil
-			case key.Matches(msg, Keys.Back):
-				return s, nil
 			case key.Matches(msg, Keys.Sort):
-				s.cycleSortColumn()
+				s.sortColumn = (s.sortColumn + 1) % 7
+				s.rebuild()
 				return s, nil
 			}
 		}
 
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.rebuild()
+
 	case reloadMsg:
-		s.tasks = s.backlog.AllTasks
-		s.refresh()
+		s.rebuild()
 	}
 
 	if s.showFilter && s.filterMode == filterSearch {
 		var cmd2 tea.Cmd
 		s.search, cmd2 = s.search.Update(msg)
 		s.filterText = s.search.Value()
-		s.refresh()
+		s.rebuild()
 		return s, cmd2
 	}
 
-	// Forward to table for navigation (always)
 	var tableCmd tea.Cmd
 	s.table, tableCmd = s.table.Update(msg)
 	return s, tableCmd
@@ -185,27 +185,22 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *taskListModel) View() string {
 	var b strings.Builder
 
-	// Search bar
 	if s.showFilter {
 		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(s.search.View()))
 	} else {
 		b.WriteString("\n")
 	}
 
-	// Main content: table + optional detail panel
 	if s.showDetail && s.detailTask != nil {
 		listView := s.table.View()
 		detailView := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName())
-
-		// Fix table height to match
 		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, detailView))
 	} else {
 		b.WriteString(s.table.View())
 	}
 
-	// Footer
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d tasks | 1-5 screens | / search | s sort", len(s.tasks))
+	info := fmt.Sprintf("%d items | 1-5 screens | / search | s sort", len(s.rows))
 	if s.showDetail {
 		info += " | Tab cycle | Enter open dep | Esc close"
 	} else {
@@ -214,6 +209,163 @@ func (s *taskListModel) View() string {
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
 
 	return b.String()
+}
+
+func (s *taskListModel) rebuild() {
+	filtered := s.filterTasks()
+	s.buildTree(filtered)
+
+	// Conditional type column
+	showType := false
+	for _, r := range s.rows {
+		if r.task.Type != model.TypeTask {
+			showType = true
+			break
+		}
+	}
+
+	// Calculate column widths based on available space
+	avail := 80
+	if s.width > 0 {
+		avail = s.width - 4
+		if s.showDetail {
+			detailW := s.width * 2 / 5
+			if detailW < 35 {
+				detailW = 35
+			}
+			if detailW > 60 {
+				detailW = 60
+			}
+			avail = s.width - 4 - detailW
+		}
+	}
+	if avail < 40 {
+		avail = 40
+	}
+
+	fixedWidth := 8 + 16 + 12 + 10 + 4 + 10 // Project+ID+Status+Priority+SP+Sprint
+	if showType {
+		fixedWidth += 8
+	}
+	titleW := avail - fixedWidth
+	if titleW < 10 {
+		titleW = 10
+	}
+
+	cols := []table.Column{
+		{Title: "Project", Width: 8},
+		{Title: "ID", Width: 16},
+	}
+	if showType {
+		cols = append(cols, table.Column{Title: "Type", Width: 8})
+	}
+	cols = append(cols,
+		table.Column{Title: "Status", Width: 12},
+		table.Column{Title: "Title", Width: titleW},
+		table.Column{Title: "SP", Width: 4},
+		table.Column{Title: "Sprint", Width: 10},
+	)
+	s.table.SetColumns(cols)
+
+	rows := make([]table.Row, 0, len(s.rows))
+	for _, r := range s.rows {
+		t := r.task
+		sp := ""
+		if t.StoryPoints != nil {
+			sp = fmt.Sprintf("%d", *t.StoryPoints)
+		}
+		pid := strings.Split(t.ID, "-")[0]
+		if len(pid) > 4 {
+			pid = pid[:4]
+		}
+
+		title := truncate(r.prefix+t.Summary, titleW)
+		if title == "" {
+			title = truncate(r.prefix+t.ID, titleW)
+		}
+
+		statusStr := StatusBadge(string(t.Status))
+
+		row := table.Row{pid, t.ID}
+		if showType {
+			row = append(row, string(t.Type))
+		}
+		row = append(row, statusStr, title, sp, t.Sprint)
+		rows = append(rows, row)
+	}
+	s.table.SetRows(rows)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	if n <= 3 {
+		return s[:n]
+	}
+	return s[:n-1] + "\u2026"
+}
+
+// Build a nested tree from epics → stories → tasks, then flat items
+func (s *taskListModel) buildTree(tasks []*model.Task) {
+	epics := s.backlog.AllEpics
+	taskByID := make(map[string]*model.Task)
+	for _, t := range tasks {
+		taskByID[t.ID] = t
+	}
+
+	var rows []flatRow
+	seen := make(map[string]bool)
+
+	// Epics first
+	for _, ep := range epics {
+		if ep.ProjectID != s.backlog.Current.Config.ProjectID {
+			continue
+		}
+		epTask, ok := taskByID[ep.ID]
+		if !ok {
+			continue
+		}
+		seen[ep.ID] = true
+		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
+
+		// Children of this epic (stories + tasks with epic set)
+		var children []*model.Task
+		for _, t := range tasks {
+			if t.Epic == ep.ID && t.ID != ep.ID {
+				children = append(children, t)
+			}
+		}
+		for _, child := range children {
+			if child.Type == model.TypeStory {
+				seen[child.ID] = true
+				rows = append(rows, flatRow{task: child, prefix: "  \u251C ", level: 1})
+				// Tasks under this story
+				for _, t := range children {
+					if t.Parent == child.ID && t.ID != child.ID {
+						seen[t.ID] = true
+						rows = append(rows, flatRow{task: t, prefix: "  \u2502   \u2514 ", level: 2})
+					}
+				}
+			}
+		}
+		// Tasks directly under epic (not under a story)
+		for _, child := range children {
+			if !seen[child.ID] && child.Type == model.TypeTask {
+				seen[child.ID] = true
+				rows = append(rows, flatRow{task: child, prefix: "  \u2514 ", level: 1})
+			}
+		}
+	}
+
+	// Remaining items (no epic, or external)
+	for _, t := range tasks {
+		if !seen[t.ID] {
+			rows = append(rows, flatRow{task: t, prefix: "", level: 0})
+		}
+	}
+
+	s.rows = rows
 }
 
 // Detail panel management
@@ -312,8 +464,7 @@ func (s *taskListModel) depCursorUp() {
 }
 
 func (s *taskListModel) depCursorDown() {
-	count := s.focusedDepCount()
-	if s.depCursor < count-1 {
+	if s.depCursor < s.focusedDepCount()-1 {
 		s.depCursor++
 	}
 }
@@ -353,46 +504,15 @@ func (s *taskListModel) focusedDepLink() *detailLink {
 	return nil
 }
 
-// Table helpers
-
 func (s *taskListModel) SelectedTask() *model.Task {
-	if len(s.tasks) == 0 {
+	if len(s.rows) == 0 {
 		return nil
 	}
 	row := s.table.Cursor()
-	if row >= 0 && row < len(s.tasks) {
-		return s.tasks[row]
+	if row >= 0 && row < len(s.rows) {
+		return s.rows[row].task
 	}
 	return nil
-}
-
-func (s *taskListModel) refresh() {
-	filtered := s.filterTasks()
-	sorted := s.sortTasks(filtered)
-	s.tasks = sorted
-
-	rows := make([]table.Row, 0, len(sorted))
-	for _, t := range sorted {
-		sp := ""
-		if t.StoryPoints != nil {
-			sp = fmt.Sprintf("%d", *t.StoryPoints)
-		}
-		projectPrefix := strings.Split(t.ID, "-")[0]
-		if len(projectPrefix) > 4 {
-			projectPrefix = projectPrefix[:4]
-		}
-		rows = append(rows, table.Row{
-			projectPrefix,
-			t.ID,
-			string(t.Type),
-			string(t.Status),
-			string(t.Priority),
-			t.Assignee,
-			sp,
-			t.Sprint,
-		})
-	}
-	s.table.SetRows(rows)
 }
 
 func (s *taskListModel) filterTasks() []*model.Task {
@@ -419,47 +539,4 @@ func (s *taskListModel) filterTasks() []*model.Task {
 		}
 	}
 	return filtered
-}
-
-func (s *taskListModel) sortTasks(tasks []*model.Task) []*model.Task {
-	sorted := make([]*model.Task, len(tasks))
-	copy(sorted, tasks)
-	sort.Slice(sorted, func(i, j int) bool {
-		var less bool
-		switch s.sortColumn {
-		case 0:
-			less = sorted[i].ID < sorted[j].ID
-		case 1:
-			less = sorted[i].ID < sorted[j].ID
-		case 2:
-			less = sorted[i].Type < sorted[j].Type
-		case 3:
-			less = sorted[i].StatusScore() < sorted[j].StatusScore()
-		case 4:
-			less = sorted[i].PriorityScore() < sorted[j].PriorityScore()
-		case 5:
-			less = sorted[i].Assignee < sorted[j].Assignee
-		case 6:
-			ai, bi := 0, 0
-			if sorted[i].StoryPoints != nil {
-				ai = *sorted[i].StoryPoints
-			}
-			if sorted[j].StoryPoints != nil {
-				bi = *sorted[j].StoryPoints
-			}
-			less = ai < bi
-		default:
-			less = sorted[i].ID < sorted[j].ID
-		}
-		if !s.sortAsc {
-			return !less
-		}
-		return less
-	})
-	return sorted
-}
-
-func (s *taskListModel) cycleSortColumn() {
-	s.sortColumn = (s.sortColumn + 1) % 8
-	s.refresh()
 }

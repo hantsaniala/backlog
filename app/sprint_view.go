@@ -16,6 +16,7 @@ type sprintViewModel struct {
 	viewport   viewport.Model
 	ready      bool
 	sprintIdx  int
+	width      int
 }
 
 func newScreenSprintView(b *model.Backlog) *sprintViewModel {
@@ -42,6 +43,9 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.ready = false
 	case reloadMsg:
 		s.ready = false
 	}
@@ -120,8 +124,12 @@ func (s *sprintViewModel) View() string {
 	}
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	if !s.ready {
-		s.viewport = viewport.New(80, 20)
+	if !s.ready || s.width > 0 {
+		w := s.width - 4
+		if w < 40 {
+			w = 80
+		}
+		s.viewport = viewport.New(w, 20)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {

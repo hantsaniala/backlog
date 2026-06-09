@@ -14,6 +14,7 @@ type backlogHealthModel struct {
 	backlog  *model.Backlog
 	viewport viewport.Model
 	ready    bool
+	width    int
 }
 
 func newScreenBacklogHealth(b *model.Backlog) *backlogHealthModel {
@@ -24,7 +25,10 @@ func (s *backlogHealthModel) Init() tea.Cmd { return nil }
 
 func (s *backlogHealthModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	switch msg.(type) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.ready = false
 	case reloadMsg:
 		s.ready = false
 	}
@@ -97,8 +101,12 @@ func (s *backlogHealthModel) View() string {
 	b.WriteString("\n")
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	if !s.ready {
-		s.viewport = viewport.New(80, 20)
+	if !s.ready || s.width > 0 {
+		w := s.width - 4
+		if w < 40 {
+			w = 80
+		}
+		s.viewport = viewport.New(w, 20)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {

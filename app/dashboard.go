@@ -15,6 +15,7 @@ type dashboardModel struct {
 	backlog  *model.Backlog
 	viewport viewport.Model
 	ready    bool
+	width    int
 }
 
 func newScreenDashboard(b *model.Backlog) *dashboardModel {
@@ -25,7 +26,10 @@ func (s *dashboardModel) Init() tea.Cmd { return nil }
 
 func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
-	switch msg.(type) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		s.width = msg.Width
+		s.ready = false
 	case reloadMsg:
 		s.refresh()
 	}
@@ -75,8 +79,12 @@ func (s *dashboardModel) View() string {
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 
-	if !s.ready {
-		s.viewport = viewport.New(80, 20)
+	if !s.ready || s.width > 0 {
+		w := s.width - 4
+		if w < 40 {
+			w = 80
+		}
+		s.viewport = viewport.New(w, 20)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {
