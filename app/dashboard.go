@@ -15,6 +15,7 @@ type dashboardModel struct {
 	viewport viewport.Model
 	ready    bool
 	width    int
+	height   int
 }
 
 func newScreenDashboard(b *model.Backlog) *dashboardModel {
@@ -28,6 +29,7 @@ func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
+		s.height = msg.Height
 		s.ready = false
 	case reloadMsg:
 		s.refresh()
@@ -63,60 +65,8 @@ func (s *dashboardModel) View() string {
 		s.printProjectCard(&b, ext, true)
 	}
 
-	health := s.backlog.CheckHealth()
-	barW := s.barWidth()
-
-	healthColor := colorSuccess
-	healthGlyph := "●"
-	if len(health.Issues) > 0 {
-		for _, issue := range health.Issues {
-			if issue.Severity == "error" {
-				healthColor = colorError
-				healthGlyph = "●"
-				break
-			}
-			if issue.Severity == "warning" {
-				healthColor = colorWarning
-				healthGlyph = "●"
-			}
-		}
-	}
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(healthColor).Render(
-		fmt.Sprintf(" %s Health", healthGlyph)))
-	b.WriteString("\n")
-
-	if len(health.Issues) == 0 {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorSuccess).Render(" All clear"))
-		b.WriteString("\n")
-	} else {
-		errCount := 0
-		warnCount := 0
-		for _, issue := range health.Issues {
-			if issue.Severity == "error" {
-				errCount++
-			} else {
-				warnCount++
-			}
-		}
-		if errCount > 0 {
-			f := errCount
-			if f > barW {
-				f = barW
-			}
-			bar := lipgloss.NewStyle().Foreground(colorError).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorError).Render(fmt.Sprintf("errors  %s  %d", bar, errCount)))
-			b.WriteString("\n")
-		}
-		if warnCount > 0 {
-			f := warnCount
-			if f > barW {
-				f = barW
-			}
-			bar := lipgloss.NewStyle().Foreground(colorWarning).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-			b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorWarning).Render(fmt.Sprintf("warn    %s  %d", bar, warnCount)))
-			b.WriteString("\n")
-		}
-	}
+	// Health merged
+	s.printHealth(&b)
 
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for changes... live reload active"))
@@ -126,14 +76,108 @@ func (s *dashboardModel) View() string {
 	if w < 40 {
 		w = 80
 	}
+	viewportH := s.height - 5
+	if viewportH < 10 {
+		viewportH = 10
+	}
 	if !s.ready || s.width > 0 {
-		s.viewport = viewport.New(w, 20)
+		s.viewport = viewport.New(w, viewportH)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {
 		s.viewport.SetContent(content)
 	}
 	return s.viewport.View()
+}
+
+func (s *dashboardModel) printHealth(b *strings.Builder) {
+	report := s.backlog.CheckHealth()
+	barW := s.barWidth()
+
+	errCount := 0
+	warnCount := 0
+	infoCount := 0
+	for _, issue := range report.Issues {
+		switch issue.Severity {
+		case "error":
+			errCount++
+		case "warning":
+			warnCount++
+		default:
+			infoCount++
+		}
+	}
+
+	maxCount := errCount
+	if warnCount > maxCount {
+		maxCount = warnCount
+	}
+	if infoCount > maxCount {
+		maxCount = infoCount
+	}
+	if maxCount == 0 {
+		maxCount = 1
+	}
+
+	healthColor := colorSuccess
+	if errCount > 0 {
+		healthColor = colorError
+	} else if warnCount > 0 {
+		healthColor = colorWarning
+	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(healthColor).Bold(true).Render(" ● Health"))
+	b.WriteString("\n")
+
+	if len(report.Issues) == 0 {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorSuccess).Render(" All clear"))
+		b.WriteString("\n\n")
+		return
+	}
+
+	drawBar := func(label string, count int, color lipgloss.Color) {
+		f := count * barW / maxCount
+		if f > barW {
+			f = barW
+		}
+		bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Render(fmt.Sprintf("%s  %-10s %s  %d", statusDot(label), label, bar, count)))
+		b.WriteString("\n")
+	}
+	drawBar("errors", errCount, colorError)
+	drawBar("warnings", warnCount, colorWarning)
+
+	for _, issue := range report.Issues {
+		var icon string
+		var sevColor lipgloss.Color
+		switch issue.Severity {
+		case "error":
+			icon = "  ✖"
+			sevColor = colorError
+		case "warning":
+			icon = "  ⚠"
+			sevColor = colorWarning
+		default:
+			icon = "  ℹ"
+			sevColor = colorInfo
+		}
+		msg := fmt.Sprintf("%s %s", icon, issue.Message)
+		if issue.TaskID != "" {
+			msg += fmt.Sprintf(" [%s]", issue.TaskID)
+		}
+		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(sevColor).Render(msg))
+		b.WriteString("\n")
+	}
+
+	counts := s.backlog.StatusCounts("")
+	totalTasks := 0
+	for _, c := range counts {
+		totalTasks += c
+	}
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorTextDim).Render(
+		fmt.Sprintf("tasks: %d | epics: %d | sprints: %d | projects: %d",
+			totalTasks, len(s.backlog.AllEpics), len(s.backlog.Current.Sprints), 1+len(s.backlog.Externals))))
+	b.WriteString("\n")
 }
 
 func (s *dashboardModel) barWidth() int {
@@ -149,10 +193,6 @@ func (s *dashboardModel) barWidth() int {
 
 func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool) {
 	counts := s.backlog.StatusCounts(snap.Config.ProjectID)
-	total := 0
-	for _, c := range counts {
-		total += c
-	}
 	title := snap.Config.ProjectID
 	if external {
 		title += " " + ExternalBadge()

@@ -15,6 +15,7 @@ type epicTreeModel struct {
 	viewport viewport.Model
 	ready    bool
 	width    int
+	height   int
 }
 
 func newScreenEpicTree(b *model.Backlog) *epicTreeModel {
@@ -28,6 +29,7 @@ func (s *epicTreeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
+		s.height = msg.Height
 		s.ready = false
 	case reloadMsg:
 		s.ready = false
@@ -43,6 +45,19 @@ func (s *epicTreeModel) View() string {
 
 	if len(s.backlog.AllEpics) == 0 {
 		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render("No epics found"))
+		content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
+		w := s.width - 4
+		if w < 40 {
+			w = 80
+		}
+		viewportH := s.height - 5
+		if viewportH < 10 {
+			viewportH = 10
+		}
+		s.viewport = viewport.New(w, viewportH)
+		s.viewport.SetContent(content)
+		s.ready = true
+		return s.viewport.View()
 	} else {
 		for _, ep := range s.backlog.AllEpics {
 			s.printEpicNode(&b, ep, 0)
@@ -54,8 +69,12 @@ func (s *epicTreeModel) View() string {
 	if w < 40 {
 		w = 80
 	}
+	viewportH := s.height - 5
+	if viewportH < 10 {
+		viewportH = 10
+	}
 	if !s.ready || s.width > 0 {
-		s.viewport = viewport.New(w, 20)
+		s.viewport = viewport.New(w, viewportH)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {

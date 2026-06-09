@@ -17,6 +17,7 @@ type sprintViewModel struct {
 	ready      bool
 	sprintIdx  int
 	width      int
+	height     int
 }
 
 func newScreenSprintView(b *model.Backlog) *sprintViewModel {
@@ -45,6 +46,7 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
+		s.height = msg.Height
 		s.ready = false
 	case reloadMsg:
 		s.ready = false
@@ -66,8 +68,12 @@ func (s *sprintViewModel) View() string {
 		if w < 40 {
 			w = 80
 		}
+		viewportH := s.height - 5
+		if viewportH < 10 {
+			viewportH = 10
+		}
 		if !s.ready {
-			s.viewport = viewport.New(w, 20)
+			s.viewport = viewport.New(w, viewportH)
 			s.viewport.SetContent(content)
 			s.ready = true
 		}
@@ -151,8 +157,12 @@ func (s *sprintViewModel) View() string {
 	if w < 40 {
 		w = 80
 	}
+	viewportH := s.height - 5
+	if viewportH < 10 {
+		viewportH = 10
+	}
 	if !s.ready || s.width > 0 {
-		s.viewport = viewport.New(w, 20)
+		s.viewport = viewport.New(w, viewportH)
 		s.viewport.SetContent(content)
 		s.ready = true
 	} else {

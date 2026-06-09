@@ -19,7 +19,6 @@ type keyMap struct {
 	Two    key.Binding
 	Three  key.Binding
 	Four   key.Binding
-	Five   key.Binding
 }
 
 var Keys = keyMap{
@@ -87,10 +86,6 @@ var Keys = keyMap{
 		key.WithKeys("4"),
 		key.WithHelp("4", "sprints"),
 	),
-	Five: key.NewBinding(
-		key.WithKeys("5"),
-		key.WithHelp("5", "health"),
-	),
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -100,7 +95,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right, k.Tab},
-		{k.One, k.Two, k.Three, k.Four, k.Five},
+		{k.One, k.Two, k.Three, k.Four},
 		{k.Enter, k.Back, k.Quit},
 		{k.Filter, k.Sort, k.Reload},
 	}

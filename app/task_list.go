@@ -63,7 +63,8 @@ type taskListModel struct {
 	blockLinks  []detailLink
 	relatedLinks []detailLink
 
-	width         int
+	width          int
+	height         int
 	detailViewport viewport.Model
 	detailReady    bool
 }
@@ -85,7 +86,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(20),
+		table.WithHeight(10),
 	)
 	st := table.DefaultStyles()
 	st.Header = st.Header.
@@ -148,6 +149,9 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, Keys.Up):
 				if s.focus == focusContent {
 					s.detailViewport, _ = s.detailViewport.Update(msg)
+				} else if s.focus == focusList {
+					s.table, _ = s.table.Update(msg)
+					s.syncDetailFromList()
 				} else {
 					s.depCursorUp()
 				}
@@ -155,6 +159,9 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, Keys.Down):
 				if s.focus == focusContent {
 					s.detailViewport, _ = s.detailViewport.Update(msg)
+				} else if s.focus == focusList {
+					s.table, _ = s.table.Update(msg)
+					s.syncDetailFromList()
 				} else {
 					s.depCursorDown()
 				}
@@ -174,6 +181,7 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
+		s.height = msg.Height
 		s.detailReady = false
 		s.rebuild()
 
@@ -315,6 +323,11 @@ func (s *taskListModel) rebuild() {
 		rows = append(rows, row)
 	}
 	s.table.SetRows(rows)
+	tableH := s.height - 6
+	if tableH < 5 {
+		tableH = 5
+	}
+	s.table.SetHeight(tableH)
 }
 
 func truncate(s string, n int) string {
@@ -412,6 +425,16 @@ func (s *taskListModel) openDetail() {
 	s.rebuild()
 }
 
+func (s *taskListModel) syncDetailFromList() {
+	task := s.SelectedTask()
+	if task != nil && task != s.detailTask {
+		s.detailTask = task
+		s.depCursor = 0
+		s.resolveLinks()
+		s.updateDetailContent()
+	}
+}
+
 func (s *taskListModel) closeDetail() {
 	s.showDetail = false
 	s.detailTask = nil
@@ -429,8 +452,12 @@ func (s *taskListModel) updateDetailContent() {
 		detailW = 55
 	}
 	content := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
+	viewportH := s.height - 6
+	if viewportH < 10 {
+		viewportH = 10
+	}
 	if !s.detailReady {
-		s.detailViewport = viewport.New(detailW, 20)
+		s.detailViewport = viewport.New(detailW, viewportH)
 		s.detailViewport.SetContent(content)
 		s.detailReady = true
 	} else {
