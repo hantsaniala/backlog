@@ -28,9 +28,9 @@ type focusSection int
 
 const (
 	focusList focusSection = iota
-	focusClose
 	focusContent
 	focusParent
+	focusEpic
 	focusDepends
 	focusBlocks
 	focusRelated
@@ -54,13 +54,13 @@ type taskListModel struct {
 	showAll    bool
 	rows       []flatRow
 
-	showDetail  bool
 	detailTask  *model.Task
 	focus       focusSection
 	depCursor   int
-	parentLinks []detailLink
-	depLinks    []detailLink
-	blockLinks  []detailLink
+	parentLinks  []detailLink
+	epicLinks    []detailLink
+	depLinks     []detailLink
+	blockLinks   []detailLink
 	relatedLinks []detailLink
 
 	width          int
@@ -110,6 +110,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		showAll: true,
 	}
 	tl.rebuild()
+	tl.openDetail()
 	return tl
 }
 
@@ -125,58 +126,46 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return s, textinput.Blink
 		}
 
-		if s.showDetail {
-			switch {
-			case key.Matches(msg, Keys.Enter):
-				if link := s.focusedDepLink(); link != nil && link.Task != nil {
-					s.detailTask = link.Task
-					s.depCursor = 0
-					s.resolveLinks()
-					return s, nil
-				}
-				if s.focus == focusClose || s.focus == focusList {
-					s.closeDetail()
-					return s, nil
-				}
-				s.closeDetail()
-				return s, nil
-			case key.Matches(msg, Keys.Back):
-				s.closeDetail()
-				return s, nil
-			case key.Matches(msg, Keys.Tab):
-				s.cycleFocus()
-				return s, nil
-			case key.Matches(msg, Keys.Up):
-				if s.focus == focusContent {
-					s.detailViewport, _ = s.detailViewport.Update(msg)
-				} else if s.focus == focusList {
-					s.table, _ = s.table.Update(msg)
-					s.syncDetailFromList()
-				} else {
-					s.depCursorUp()
-				}
-				return s, nil
-			case key.Matches(msg, Keys.Down):
-				if s.focus == focusContent {
-					s.detailViewport, _ = s.detailViewport.Update(msg)
-				} else if s.focus == focusList {
-					s.table, _ = s.table.Update(msg)
-					s.syncDetailFromList()
-				} else {
-					s.depCursorDown()
-				}
+		switch {
+		case key.Matches(msg, Keys.Enter):
+			if link := s.focusedDepLink(); link != nil && link.Task != nil {
+				s.detailTask = link.Task
+				s.depCursor = 0
+				s.resolveLinks()
+				s.updateDetailContent()
 				return s, nil
 			}
-		} else {
-			switch {
-			case key.Matches(msg, Keys.Enter):
-				s.openDetail()
-				return s, nil
-			case key.Matches(msg, Keys.Sort):
-				s.sortColumn = (s.sortColumn + 1) % 7
-				s.rebuild()
+			if s.focus == focusList {
+				s.focus = focusContent
 				return s, nil
 			}
+		case key.Matches(msg, Keys.Tab):
+			s.cycleFocus()
+			return s, nil
+		case key.Matches(msg, Keys.Sort):
+			s.sortColumn = (s.sortColumn + 1) % 7
+			s.rebuild()
+			return s, nil
+		case key.Matches(msg, Keys.Up):
+			if s.focus == focusContent {
+				s.detailViewport, _ = s.detailViewport.Update(msg)
+			} else if s.focus == focusList {
+				s.table, _ = s.table.Update(msg)
+				s.syncDetailFromList()
+			} else {
+				s.depCursorUp()
+			}
+			return s, nil
+		case key.Matches(msg, Keys.Down):
+			if s.focus == focusContent {
+				s.detailViewport, _ = s.detailViewport.Update(msg)
+			} else if s.focus == focusList {
+				s.table, _ = s.table.Update(msg)
+				s.syncDetailFromList()
+			} else {
+				s.depCursorDown()
+			}
+			return s, nil
 		}
 
 	case tea.WindowSizeMsg:
@@ -223,20 +212,11 @@ func (s *taskListModel) View() string {
 		b.WriteString("\n")
 	}
 
-	if s.showDetail && s.detailTask != nil {
-		listView := s.table.View()
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, s.detailViewport.View()))
-	} else {
-		b.WriteString(s.table.View())
-	}
+	listView := s.table.View()
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, s.detailViewport.View()))
 
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | 1-5 screens | / search | s sort", len(s.rows))
-	if s.showDetail {
-		info += " | Tab cycle | Enter open dep | Esc close"
-	} else {
-		info += " | Enter detail"
-	}
+	info := fmt.Sprintf("%d items | 1-5 screens | / search | s sort | Tab cycle | Enter open dep", len(s.rows))
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
 
 	return b.String()
@@ -257,16 +237,14 @@ func (s *taskListModel) rebuild() {
 	avail := 80
 	if s.width > 0 {
 		avail = s.width - 4
-		if s.showDetail {
-			detailW := s.width * 2 / 5
-			if detailW < 35 {
-				detailW = 35
-			}
-			if detailW > 55 {
-				detailW = 55
-			}
-			avail = s.width - 4 - detailW
+		detailW := s.width * 2 / 5
+		if detailW < 35 {
+			detailW = 35
 		}
+		if detailW > 55 {
+			detailW = 55
+		}
+		avail = s.width - 4 - detailW
 	}
 	if avail < 40 {
 		avail = 40
@@ -416,7 +394,6 @@ func (s *taskListModel) openDetail() {
 	if task == nil {
 		return
 	}
-	s.showDetail = true
 	s.detailTask = task
 	s.depCursor = 0
 	s.focus = focusList
@@ -433,14 +410,6 @@ func (s *taskListModel) syncDetailFromList() {
 		s.resolveLinks()
 		s.updateDetailContent()
 	}
-}
-
-func (s *taskListModel) closeDetail() {
-	s.showDetail = false
-	s.detailTask = nil
-	s.depCursor = 0
-	s.detailReady = false
-	s.rebuild()
 }
 
 func (s *taskListModel) updateDetailContent() {
@@ -471,6 +440,7 @@ func (s *taskListModel) resolveLinks() {
 		return
 	}
 	s.parentLinks = resolveDetailLinks(filterEmpty([]string{s.detailTask.Parent}), s.backlog)
+	s.epicLinks = resolveDetailLinks(filterEmpty([]string{s.detailTask.Epic}), s.backlog)
 	s.depLinks = resolveDetailLinks(s.detailTask.DependsOn, s.backlog)
 	s.blockLinks = resolveDetailLinks(s.detailTask.Blocks, s.backlog)
 	s.relatedLinks = resolveDetailLinks(s.detailTask.RelatedTo, s.backlog)
@@ -500,9 +470,12 @@ func (s *taskListModel) cycleFocus() {
 }
 
 func (s *taskListModel) activeSections() []focusSection {
-	secs := []focusSection{focusList, focusClose, focusContent}
+	secs := []focusSection{focusList, focusContent}
 	if len(s.parentLinks) > 0 {
 		secs = append(secs, focusParent)
+	}
+	if len(s.epicLinks) > 0 {
+		secs = append(secs, focusEpic)
 	}
 	if len(s.depLinks) > 0 {
 		secs = append(secs, focusDepends)
@@ -520,12 +493,12 @@ func (s *taskListModel) focusSectionName() string {
 	switch s.focus {
 	case focusList:
 		return "list"
-	case focusClose:
-		return "close"
 	case focusContent:
 		return "content"
 	case focusParent:
 		return "parent"
+	case focusEpic:
+		return "epic"
 	case focusDepends:
 		return "depends"
 	case focusBlocks:
@@ -553,6 +526,8 @@ func (s *taskListModel) focusedDepCount() int {
 	switch s.focus {
 	case focusParent:
 		return len(s.parentLinks)
+	case focusEpic:
+		return len(s.epicLinks)
 	case focusDepends:
 		return len(s.depLinks)
 	case focusBlocks:
@@ -569,6 +544,8 @@ func (s *taskListModel) focusedDepLink() *detailLink {
 	switch s.focus {
 	case focusParent:
 		links = s.parentLinks
+	case focusEpic:
+		links = s.epicLinks
 	case focusDepends:
 		links = s.depLinks
 	case focusBlocks:

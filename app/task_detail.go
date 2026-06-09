@@ -40,10 +40,6 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 
 	var b strings.Builder
 
-	// Close button
-	b.WriteString(lipgloss.NewStyle().Width(width - 2).Align(lipgloss.Right).Foreground(colorTextDim).Render("[X]"))
-	b.WriteString("\n")
-
 	// ID line with glyphs
 	glyph := statusDot(string(task.Status))
 	pDot := priorityDot(string(task.Priority))
@@ -97,6 +93,7 @@ func renderDetailPanel(task *model.Task, backlog *model.Backlog, focusIdx int, d
 	b.WriteString("\n")
 
 	printLinks(&b, "parent", []string{task.Parent}, backlog, focusIdx, depFocus, "parent")
+	printLinks(&b, "epic", []string{task.Epic}, backlog, focusIdx, depFocus, "epic")
 	printLinks(&b, "depends", task.DependsOn, backlog, focusIdx, depFocus, "depends")
 	printLinks(&b, "blocks", task.Blocks, backlog, focusIdx, depFocus, "blocks")
 	printLinks(&b, "related", task.RelatedTo, backlog, focusIdx, depFocus, "related")
