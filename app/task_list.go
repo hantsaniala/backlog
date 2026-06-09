@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/model"
@@ -28,6 +29,7 @@ type focusSection int
 const (
 	focusList focusSection = iota
 	focusClose
+	focusContent
 	focusParent
 	focusDepends
 	focusBlocks
@@ -61,7 +63,9 @@ type taskListModel struct {
 	blockLinks  []detailLink
 	relatedLinks []detailLink
 
-	width int
+	width         int
+	detailViewport viewport.Model
+	detailReady    bool
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
@@ -143,10 +147,18 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.cycleFocus()
 				return s, nil
 			case key.Matches(msg, Keys.Up):
-				s.depCursorUp()
+				if s.focus == focusContent {
+					s.detailViewport, _ = s.detailViewport.Update(msg)
+				} else {
+					s.depCursorUp()
+				}
 				return s, nil
 			case key.Matches(msg, Keys.Down):
-				s.depCursorDown()
+				if s.focus == focusContent {
+					s.detailViewport, _ = s.detailViewport.Update(msg)
+				} else {
+					s.depCursorDown()
+				}
 				return s, nil
 			}
 		} else {
@@ -163,6 +175,7 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
+		s.detailReady = false
 		s.rebuild()
 
 	case reloadMsg:
@@ -193,15 +206,7 @@ func (s *taskListModel) View() string {
 
 	if s.showDetail && s.detailTask != nil {
 		listView := s.table.View()
-		detailW := s.width * 2 / 5
-		if detailW < 35 {
-			detailW = 35
-		}
-		if detailW > 55 {
-			detailW = 55
-		}
-		detailView := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, detailView))
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, listView, s.detailViewport.View()))
 	} else {
 		b.WriteString(s.table.View())
 	}
@@ -394,6 +399,7 @@ func (s *taskListModel) openDetail() {
 	s.depCursor = 0
 	s.focus = focusList
 	s.resolveLinks()
+	s.updateDetailContent()
 	s.rebuild()
 }
 
@@ -401,7 +407,27 @@ func (s *taskListModel) closeDetail() {
 	s.showDetail = false
 	s.detailTask = nil
 	s.depCursor = 0
+	s.detailReady = false
 	s.rebuild()
+}
+
+func (s *taskListModel) updateDetailContent() {
+	detailW := s.width * 2 / 5
+	if detailW < 35 {
+		detailW = 35
+	}
+	if detailW > 55 {
+		detailW = 55
+	}
+	content := renderDetailPanel(s.detailTask, s.backlog, s.depCursor, s.focusSectionName(), detailW)
+	if !s.detailReady {
+		s.detailViewport = viewport.New(detailW, 20)
+		s.detailViewport.SetContent(content)
+		s.detailReady = true
+	} else {
+		s.detailViewport.SetContent(content)
+		s.detailViewport.GotoTop()
+	}
 }
 
 func (s *taskListModel) resolveLinks() {
@@ -438,7 +464,7 @@ func (s *taskListModel) cycleFocus() {
 }
 
 func (s *taskListModel) activeSections() []focusSection {
-	secs := []focusSection{focusList, focusClose}
+	secs := []focusSection{focusList, focusClose, focusContent}
 	if len(s.parentLinks) > 0 {
 		secs = append(secs, focusParent)
 	}
@@ -460,6 +486,8 @@ func (s *taskListModel) focusSectionName() string {
 		return "list"
 	case focusClose:
 		return "close"
+	case focusContent:
+		return "content"
 	case focusParent:
 		return "parent"
 	case focusDepends:
