@@ -117,14 +117,16 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if s.showFilter && s.filterMode == filterSearch {
-		var cmd tea.Cmd
-		s.search, cmd = s.search.Update(msg)
+		var cmd2 tea.Cmd
+		s.search, cmd2 = s.search.Update(msg)
 		s.filterText = s.search.Value()
 		s.refresh()
-		return s, cmd
+		return s, cmd2
 	}
 
-	return s, nil
+	var tableCmd tea.Cmd
+	s.table, tableCmd = s.table.Update(msg)
+	return s, tableCmd
 }
 
 func (s *taskListModel) View() string {
