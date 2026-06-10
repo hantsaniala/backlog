@@ -44,6 +44,7 @@ func (h *helpModel) categories() []helpCategory {
 				{key: "G", description: "Jump to bottom"},
 				{key: "C-d / C-u", description: "Half page down/up"},
 				{key: "C-f / C-b", description: "Full page down/up"},
+				{key: "[ / ]", description: "Previous/next page"},
 				{key: "zz", description: "Center cursor on screen"},
 				{key: "f", description: "Jump hints (EasyMotion)"},
 				{key: "Tab / S-Tab", description: "Next/prev panel"},

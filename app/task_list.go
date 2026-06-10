@@ -300,6 +300,35 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.clampCursor()
 		return s, nil
 
+	// Page navigation
+	case msg.String() == "]":
+		page := s.height - 8
+		if page < 1 {
+			page = 1
+		}
+		s.cursor += page
+		s.clampCursor()
+		// Also scroll viewport
+		if s.treeReady {
+			s.treeViewport.YOffset += page
+		}
+		return s, nil
+
+	case msg.String() == "[":
+		page := s.height - 8
+		if page < 1 {
+			page = 1
+		}
+		s.cursor -= page
+		s.clampCursor()
+		if s.treeReady {
+			s.treeViewport.YOffset -= page
+			if s.treeViewport.YOffset < 0 {
+				s.treeViewport.YOffset = 0
+			}
+		}
+		return s, nil
+
 	// Back / cancel
 	case key.Matches(msg, NormalKeys.Back):
 		if s.filterOn {
@@ -624,10 +653,21 @@ func (s *taskListModel) renderTreeFull() string {
 		b.WriteString(scrollDownStyle)
 	}
 
+	// Page indicator
+	totalItems := len(s.visibleRows)
+	pageNum := int(s.treeViewport.YOffset)/treeH + 1
+	totalPages := (totalItems + treeH - 1) / treeH
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	pageStr := fmt.Sprintf("Page %d/%d  [ ] prev/next  ", pageNum, totalPages)
+	b.WriteString("\n")
+	b.WriteString(pageNavStyle.Render(pageStr))
+
 	// Contextual info
 	b.WriteString("\n")
 	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit",
-		len(s.visibleRows))
+		totalItems)
 	if s.jumpHints.active {
 		info += s.jumpHints.bufferDisplay()
 	}

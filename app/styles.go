@@ -243,6 +243,10 @@ var (
 				Foreground(colorWarning).
 				Bold(true).
 				Padding(0, 1)
+
+	pageNavStyle = lipgloss.NewStyle().
+			Foreground(colorTextDim).
+			Padding(0, 2)
 )
 
 func StatusBadge(status string) string {

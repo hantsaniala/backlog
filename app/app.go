@@ -98,6 +98,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case paletteExecuteMsg:
 		m.handlePaletteCommand(msg.command)
+		return m, nil
 
 	case tea.KeyMsg:
 		// Handle Ctrl+w prefix state machine
@@ -121,21 +122,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Help overlay toggle
-		if key.Matches(msg, NormalKeys.Help) {
-			if m.inputMode == ModeHelp {
-				m.inputMode = ModeNormal
-				m.showHelp = false
-			} else {
-				m.inputMode = ModeHelp
-				m.showHelp = true
-			}
-			return m, nil
-		}
 		if m.inputMode == ModeHelp {
 			if msg.String() == "esc" || msg.String() == "?" {
 				m.inputMode = ModeNormal
 				m.showHelp = false
 			}
+			return m, nil
+		}
+		if m.inputMode == ModeNormal && key.Matches(msg, NormalKeys.Help) {
+			m.showHelp = true
+			m.inputMode = ModeHelp
 			return m, nil
 		}
 
@@ -275,8 +271,6 @@ func (m *Model) View() string {
 		}
 		mainContent := ""
 		if s, ok := m.screens[m.currentScreen]; ok {
-			// Re-render screen content at narrower width by sending a WindowSizeMsg
-			_ = s.View()
 			mainContent = s.View()
 		}
 
@@ -352,7 +346,7 @@ func (m *Model) renderFooter() string {
 func (m *Model) contextualHints() string {
 	switch m.inputMode {
 	case ModeNormal:
-		return fmt.Sprintf("%s | j/k:move Enter:drill /:search f:jump v:select ::cmd ?:help q:quit",
+		return fmt.Sprintf("%s | j/k:move []:page Enter:drill /:search f:jump v:select ::cmd ?:help q:quit",
 			m.tabNames[m.currentScreen])
 	case ModeInsert:
 		return "Type filter | Esc:cancel Tab:next field Enter:confirm"
