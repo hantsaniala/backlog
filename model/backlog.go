@@ -101,6 +101,14 @@ func LoadBacklog(backlogRoot string) (*Backlog, error) {
 	// Link epics to their children
 	b.linkEpicChildren()
 
+	// Add epic-derived tasks to AllTasks (for health checks, search, etc.)
+	for _, ep := range b.AllEpics {
+		b.AllTasks = append(b.AllTasks, EpicToTask(ep))
+	}
+	sort.Slice(b.AllTasks, func(i, j int) bool {
+		return b.AllTasks[i].ID < b.AllTasks[j].ID
+	})
+
 	return b, nil
 }
 
@@ -275,7 +283,42 @@ func (b *Backlog) TaskByID(id string) *Task {
 			return t
 		}
 	}
+	for _, ep := range b.AllEpics {
+		if ep.ID == id {
+			return &Task{ID: ep.ID, Type: TypeEpic, ProjectID: ep.ProjectID}
+		}
+	}
 	return nil
+}
+
+func EpicToTask(ep *Epic) *Task {
+	summary := ep.Name
+	if summary == "" && ep.Body != "" {
+		for _, line := range strings.Split(ep.Body, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "## Summary" {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "## ") {
+				break
+			}
+			if trimmed != "" && summary == "" {
+				summary = trimmed
+			}
+		}
+	}
+	return &Task{
+		ID:        ep.ID,
+		Type:      TypeEpic,
+		Status:    ep.Status,
+		Priority:  ep.Priority,
+		Labels:    ep.Labels,
+		Created:   ep.Created,
+		Updated:   ep.Updated,
+		Summary:   summary,
+		Body:      ep.Body,
+		ProjectID: ep.ProjectID,
+	}
 }
 
 func (b *Backlog) TaskByFullID(fullID string) *Task {
