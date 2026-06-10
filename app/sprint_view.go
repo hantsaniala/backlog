@@ -65,60 +65,108 @@ func (s *sprintViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, Keys.Quit):
+	case key.Matches(msg, NormalKeys.Quit):
 		return s, tea.Quit
-	case key.Matches(msg, Keys.Tab):
+	case key.Matches(msg, NormalKeys.Tab), key.Matches(msg, NormalKeys.PrevTab):
 		if s.focus == paneLeft {
 			s.focus = paneRight
 		} else {
 			s.focus = paneLeft
 		}
 		return s, nil
-	case key.Matches(msg, Keys.Filter):
+	case key.Matches(msg, NormalKeys.Filter):
 		return s, nil // TODO: search modal
-	case key.Matches(msg, Keys.Up), key.Matches(msg, Keys.Down):
+	case key.Matches(msg, NormalKeys.Up), key.Matches(msg, NormalKeys.Down):
 		if s.focus == paneLeft {
-			if key.Matches(msg, Keys.Up) && s.leftCursor > 0 {
+			if key.Matches(msg, NormalKeys.Up) && s.leftCursor > 0 {
 				s.leftCursor--
-			} else if key.Matches(msg, Keys.Down) && s.leftCursor < len(s.leftItems)-1 {
+			} else if key.Matches(msg, NormalKeys.Down) && s.leftCursor < len(s.leftItems)-1 {
 				s.leftCursor++
 			}
 		} else {
-			if key.Matches(msg, Keys.Up) && s.rightCursor > 0 {
+			if key.Matches(msg, NormalKeys.Up) && s.rightCursor > 0 {
 				s.rightCursor--
-			} else if key.Matches(msg, Keys.Down) && s.rightCursor < len(s.rightItems)-1 {
+			} else if key.Matches(msg, NormalKeys.Down) && s.rightCursor < len(s.rightItems)-1 {
 				s.rightCursor++
 			}
 		}
 		return s, nil
-	case key.Matches(msg, Keys.MoveRight):
+	case key.Matches(msg, NormalKeys.GotoBottom):
+		if s.focus == paneLeft {
+			s.leftCursor = len(s.leftItems) - 1
+		} else {
+			s.rightCursor = len(s.rightItems) - 1
+		}
+		return s, nil
+	case msg.String() == "g":
+		if s.focus == paneLeft {
+			s.leftCursor = 0
+		} else {
+			s.rightCursor = 0
+		}
+		return s, nil
+	case key.Matches(msg, NormalKeys.HalfDown):
+		page := (s.height - 12) / 2
+		if page < 1 {
+			page = 1
+		}
+		if s.focus == paneLeft {
+			s.leftCursor += page
+			if s.leftCursor >= len(s.leftItems) {
+				s.leftCursor = len(s.leftItems) - 1
+			}
+		} else {
+			s.rightCursor += page
+			if s.rightCursor >= len(s.rightItems) {
+				s.rightCursor = len(s.rightItems) - 1
+			}
+		}
+		return s, nil
+	case key.Matches(msg, NormalKeys.HalfUp):
+		page := (s.height - 12) / 2
+		if page < 1 {
+			page = 1
+		}
+		if s.focus == paneLeft {
+			s.leftCursor -= page
+			if s.leftCursor < 0 {
+				s.leftCursor = 0
+			}
+		} else {
+			s.rightCursor -= page
+			if s.rightCursor < 0 {
+				s.rightCursor = 0
+			}
+		}
+		return s, nil
+	case key.Matches(msg, NormalKeys.MoveRight):
 		if s.focus == paneLeft && s.leftCursor >= 0 && s.leftCursor < len(s.leftItems) {
 			task := s.leftItems[s.leftCursor]
 			task.Sprint = s.currentSprintName()
 			s.refresh()
 		}
 		return s, nil
-	case key.Matches(msg, Keys.MoveLeft):
+	case key.Matches(msg, NormalKeys.MoveLeft):
 		if s.focus == paneRight && s.rightCursor >= 0 && s.rightCursor < len(s.rightItems) {
 			task := s.rightItems[s.rightCursor]
 			task.Sprint = ""
 			s.refresh()
 		}
 		return s, nil
-	case key.Matches(msg, Keys.CycleStatus):
+	case key.Matches(msg, NormalKeys.CycleStatus):
 		if s.focus == paneRight && s.rightCursor >= 0 && s.rightCursor < len(s.rightItems) {
 			task := s.rightItems[s.rightCursor]
 			task.Status = nextStatus(task.Status)
 			s.refresh()
 		}
 		return s, nil
-	case key.Matches(msg, Keys.Left):
+	case key.Matches(msg, NormalKeys.Left):
 		if s.sprintIdx > 0 {
 			s.sprintIdx--
 			s.refresh()
 		}
 		return s, nil
-	case key.Matches(msg, Keys.Right):
+	case key.Matches(msg, NormalKeys.Right):
 		if s.sprintIdx < len(s.backlog.Current.Sprints)-1 {
 			s.sprintIdx++
 			s.refresh()

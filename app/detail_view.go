@@ -35,6 +35,9 @@ type detailView struct {
 
 	// Status popup (external, managed by caller)
 	showStatusPopup bool
+
+	// Scroll tracking
+	scrollOffset int
 }
 
 func newDetailView(b *model.Backlog, t *model.Task, w, h int) *detailView {
@@ -177,8 +180,17 @@ func (d *detailView) renderMain() string {
 
 	// Footer help
 	b.WriteString("\n")
+	scrollPct := ""
+	if d.scrollOffset > 0 {
+		// Estimate scroll percentage from offset
+		pct := d.scrollOffset * 100 / 200
+		if pct > 99 {
+			pct = 99
+		}
+		scrollPct = fmt.Sprintf(" %d%%", pct)
+	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
-		" e:cycle status  r:related  Esc/q:back"))
+		fmt.Sprintf(" e:cycle status  r:related  C-d/u:scroll%s  Esc/q:back", scrollPct)))
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	detailStyle := lipgloss.NewStyle().

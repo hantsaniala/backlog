@@ -2,11 +2,11 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +17,7 @@ type flatRow struct {
 	task   *model.Task
 	prefix string
 	level  int
+	epicID string // which epic owns this row; "" for root-level or orphan items
 }
 
 type viewMode int
@@ -26,6 +27,7 @@ const (
 	modeDetail
 	modeSearch
 	modeStatusPopup
+	modeInlineFilter
 )
 
 type taskListModel struct {
@@ -40,9 +42,13 @@ type taskListModel struct {
 	cursor      int
 	expanded    map[string]bool
 
-	// Tree filter
+	// Tree filter (persistent)
 	filterText string
 	filterOn   bool
+
+	// Inline filter (temporary, / key)
+	inlineInput  textinput.Model
+	filterHistory []string // last 5
 
 	// Detail
 	detailView *detailView
@@ -58,12 +64,35 @@ type taskListModel struct {
 	// Viewport for tree scrolling
 	treeViewport viewport.Model
 	treeReady    bool
+
+	// Jump hints
+	jumpHints *jumpHintState
+
+	// Visual mode
+	visualSel *visualSelection
+
+	// Pending multi-key sequences (gg, zz)
+	pendingG bool
+	pendingZ bool
+
+	// Sidebar reference (owned by app.Model, but we track cursor for updates)
+	sidebar     *sidebarState
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
+	ti := textinput.New()
+	ti.Placeholder = "filter by ID, title, or assignee..."
+	ti.CharLimit = 100
+	ti.Width = 50
+
 	m := &taskListModel{
-		backlog:  b,
-		expanded: make(map[string]bool),
+		backlog:       b,
+		expanded:      make(map[string]bool),
+		inlineInput:   ti,
+		filterHistory: make([]string, 0),
+		jumpHints:     newJumpHintState(),
+		visualSel:     newVisualSelection(),
+		sidebar:       &sidebarState{},
 	}
 	m.rebuild()
 	if len(m.visibleRows) > 0 {
@@ -77,38 +106,13 @@ func (s *taskListModel) Init() tea.Cmd { return nil }
 func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Sub-model routing
 	if s.mode == modeSearch && s.searchRunning {
-		updated, cmd := s.searchModal.Update(msg)
-		s.searchModal = updated.(*searchModalModel)
-		if result, ok := <-catchMsg(cmd); ok {
-			if nav, ok := result.(SearchNavigateMsg); ok {
-				task := nav.Task
-				s.enterDetail(task)
-				s.searchRunning = false
-				s.mode = modeDetail
-				return s, nil
-			}
-			// nil = cancel
-			s.searchRunning = false
-			s.mode = modeTree
-			return s, nil
-		}
-		return s, cmd
+		return s.handleSearchUpdate(msg)
 	}
-
 	if s.mode == modeStatusPopup && s.statusRunning {
-		updated, cmd := s.statusPopup.Update(msg)
-		s.statusPopup = updated.(*statusPopupModel)
-		if result, ok := <-catchMsg(cmd); ok {
-			if update, ok := result.(StatusUpdateMsg); ok {
-				if s.detailView != nil {
-					s.detailView.task.Status = update.NewStatus
-				}
-			}
-			s.statusRunning = false
-			s.mode = modeDetail
-			return s, nil
-		}
-		return s, cmd
+		return s.handleStatusPopupUpdate(msg)
+	}
+	if s.mode == modeInlineFilter {
+		return s.handleInlineFilterUpdate(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -124,6 +128,7 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.width = msg.Width
 		s.height = msg.Height
 		s.treeReady = false
+		s.inlineInput.Width = s.width - 20
 		if s.detailView != nil {
 			s.detailView.width = msg.Width
 			s.detailView.height = msg.Height
@@ -140,92 +145,309 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-// catchMsg is a helper to synchronously get a msg from a cmd
-func catchMsg(cmd tea.Cmd) <-chan tea.Msg {
-	ch := make(chan tea.Msg, 1)
-	if cmd == nil {
-		close(ch)
-		return ch
+// --- Sub-model update helpers ---
+
+func (s *taskListModel) handleSearchUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := s.searchModal.Update(msg)
+	s.searchModal = updated.(*searchModalModel)
+	if result, ok := <-catchMsg(cmd); ok {
+		if nav, ok := result.(SearchNavigateMsg); ok {
+			task := nav.Task
+			s.enterDetail(task)
+			s.searchRunning = false
+			s.mode = modeDetail
+			return s, nil
+		}
+		s.searchRunning = false
+		s.mode = modeTree
+		return s, nil
 	}
-	go func() {
-		ch <- cmd()
-		close(ch)
-	}()
-	return ch
+	return s, cmd
 }
 
-func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, Keys.Filter):
-		s.mode = modeSearch
-		s.searchModal = newSearchModal(s.backlog, s.width, s.height)
-		s.searchRunning = true
-		return s, s.searchModal.Init()
+func (s *taskListModel) handleStatusPopupUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := s.statusPopup.Update(msg)
+	s.statusPopup = updated.(*statusPopupModel)
+	if result, ok := <-catchMsg(cmd); ok {
+		if update, ok := result.(StatusUpdateMsg); ok {
+			if s.detailView != nil {
+				s.detailView.task.Status = update.NewStatus
+			}
+		}
+		s.statusRunning = false
+		s.mode = modeDetail
+		return s, nil
+	}
+	return s, cmd
+}
 
-	case key.Matches(msg, Keys.Quit):
+func (s *taskListModel) handleInlineFilterUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			s.mode = modeTree
+			return s, nil
+		case "enter":
+			s.filterText = s.inlineInput.Value()
+			s.filterOn = s.filterText != ""
+			s.addFilterHistory(s.filterText)
+			s.mode = modeTree
+			s.rebuild()
+			return s, nil
+		}
+	}
+	var cmd tea.Cmd
+	s.inlineInput, cmd = s.inlineInput.Update(msg)
+	// Live filter
+	s.filterText = s.inlineInput.Value()
+	s.filterOn = s.filterText != ""
+	s.rebuild()
+	return s, cmd
+}
+
+func (s *taskListModel) addFilterHistory(f string) {
+	if f == "" {
+		return
+	}
+	s.filterHistory = append([]string{f}, s.filterHistory...)
+	if len(s.filterHistory) > 5 {
+		s.filterHistory = s.filterHistory[:5]
+	}
+}
+
+// --- Main key handlers ---
+
+func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Jump hints active: route all keypresses to jump buffer
+	if s.jumpHints.active {
+		return s.handleJumpKey(msg)
+	}
+
+	// Visual mode active: route to visual handler
+	if s.visualSel.active {
+		return s.handleVisualKey(msg)
+	}
+
+	// Pending multi-key sequences
+	if s.pendingG {
+		s.pendingG = false
+		if msg.String() == "g" || msg.String() == "G" {
+			// gg or gG — both go to top
+			s.cursor = 0
+			s.clampCursor()
+			return s, nil
+		}
+	}
+	if s.pendingZ {
+		s.pendingZ = false
+		if msg.String() == "z" {
+			// zz — center cursor
+			s.centerCursor()
+			return s, nil
+		}
+	}
+
+	switch {
+	// Quit
+	case key.Matches(msg, NormalKeys.Quit):
 		return s, tea.Quit
 
-	case key.Matches(msg, Keys.Up), key.Matches(msg, Keys.Down):
-		if key.Matches(msg, Keys.Up) && s.cursor > 0 {
+	// Navigation
+	case key.Matches(msg, NormalKeys.Up):
+		if s.cursor > 0 {
 			s.cursor--
-		} else if key.Matches(msg, Keys.Down) && s.cursor < len(s.visibleRows)-1 {
+		}
+		s.clampCursor()
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.Down):
+		if s.cursor < len(s.visibleRows)-1 {
 			s.cursor++
 		}
 		s.clampCursor()
 		return s, nil
 
-	case key.Matches(msg, Keys.Left):
-		r := s.visibleRows[s.cursor]
-		fmt.Fprintf(os.Stderr, "LEFT: cursor=%d type=%s id=%s isEpic=%v\n", s.cursor, r.task.Type, r.task.ID, r.task.Type == model.TypeEpic)
-		if r.task.Type == model.TypeEpic {
-			s.expanded[r.task.ID] = false
-			s.buildVisibleRows()
-			s.clampCursor()
-			fmt.Fprintf(os.Stderr, "LEFT: after collapse visibleRows=%d cursor=%d expanded=%v\n", len(s.visibleRows), s.cursor, s.expanded[r.task.ID])
+	case key.Matches(msg, NormalKeys.GotoTop):
+		// Single G — go to bottom
+		s.cursor = len(s.visibleRows) - 1
+		s.clampCursor()
+		return s, nil
+
+	case msg.String() == "g":
+		s.pendingG = true
+		return s, nil
+
+	case msg.String() == "z":
+		s.pendingZ = true
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.HalfDown):
+		page := (s.height - 8) / 2
+		if page < 1 {
+			page = 1
+		}
+		s.cursor += page
+		s.clampCursor()
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.HalfUp):
+		page := (s.height - 8) / 2
+		if page < 1 {
+			page = 1
+		}
+		s.cursor -= page
+		s.clampCursor()
+		return s, nil
+
+	// Back / cancel
+	case key.Matches(msg, NormalKeys.Back):
+		if s.filterOn {
+			s.filterText = ""
+			s.filterOn = false
+			s.rebuild()
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Right):
-		r := s.visibleRows[s.cursor]
-		fmt.Fprintf(os.Stderr, "RIGHT: cursor=%d type=%s id=%s isEpic=%v\n", s.cursor, r.task.Type, r.task.ID, r.task.Type == model.TypeEpic)
-		if r.task.Type == model.TypeEpic {
-			s.expanded[r.task.ID] = true
-			s.buildVisibleRows()
-			s.clampCursor()
-			fmt.Fprintf(os.Stderr, "RIGHT: after expand visibleRows=%d cursor=%d expanded=%v\n", len(s.visibleRows), s.cursor, s.expanded[r.task.ID])
+	// Expand / collapse
+	case key.Matches(msg, NormalKeys.Left):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			r := s.visibleRows[s.cursor]
+			if r.task.Type == model.TypeEpic {
+				s.expanded[r.task.ID] = false
+				s.buildVisibleRows()
+				s.clampCursor()
+			}
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Expand):
-		r := s.visibleRows[s.cursor]
-		if r.task.Type == model.TypeEpic {
-			oldVal := s.expanded[r.task.ID]
-			s.expanded[r.task.ID] = !s.expanded[r.task.ID]
-			fmt.Fprintf(os.Stderr, "SPACE: cursor=%d id=%s expanded %v->%v\n", s.cursor, r.task.ID, oldVal, s.expanded[r.task.ID])
-			s.buildVisibleRows()
-			s.clampCursor()
-		} else {
-			s.toggleDone(r.task)
+	case key.Matches(msg, NormalKeys.Right):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			r := s.visibleRows[s.cursor]
+			if r.task.Type == model.TypeEpic {
+				s.expanded[r.task.ID] = true
+				s.buildVisibleRows()
+				s.clampCursor()
+			}
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Enter):
+	case key.Matches(msg, NormalKeys.Expand):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			r := s.visibleRows[s.cursor]
+			if r.task.Type == model.TypeEpic {
+				oldVal := s.expanded[r.task.ID]
+				s.expanded[r.task.ID] = !oldVal
+				s.buildVisibleRows()
+				s.clampCursor()
+			} else {
+				s.toggleDone(r.task)
+			}
+		}
+		return s, nil
+
+	// Detail
+	case key.Matches(msg, NormalKeys.Enter):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			task := s.visibleRows[s.cursor].task
 			s.enterDetail(task)
+		}
+		return s, nil
+
+	// Filter / search
+	case key.Matches(msg, NormalKeys.Filter):
+		// If already filtered, pressing / again opens inline filter with history
+		s.inlineInput.SetValue(s.filterText)
+		s.inlineInput.Focus()
+		s.mode = modeInlineFilter
+		return s, s.inlineInput.Focus()
+
+	// Jump hints
+	case key.Matches(msg, NormalKeys.Jump):
+		s.jumpHints.activate(len(s.visibleRows))
+		return s, nil
+
+	// Visual mode
+	case key.Matches(msg, NormalKeys.Visual):
+		s.visualSel.activate(s.cursor)
+		return s, nil
+
+	// Cycle status
+	case key.Matches(msg, NormalKeys.CycleStatus):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			task := s.visibleRows[s.cursor].task
+			task.Status = nextStatus(task.Status)
+			s.rebuild()
+		}
+		return s, nil
+
+	// Reload (related items in detail context, no-op here)
+	case key.Matches(msg, NormalKeys.Reload):
+		return s, nil
+	}
+
+	return s, nil
+}
+
+func (s *taskListModel) handleJumpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "esc" {
+		s.jumpHints.cancel()
+		return s, nil
+	}
+	// Single character
+	if len(msg.String()) == 1 {
+		r := rune(msg.String()[0])
+		target, ok := s.jumpHints.pushRune(r)
+		if ok && target >= 0 && target < len(s.visibleRows) {
+			s.cursor = target
+			s.clampCursor()
+		}
+	}
+	return s, nil
+}
+
+func (s *taskListModel) handleVisualKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, VisualKeys.Cancel):
+		s.visualSel.cancel()
+		return s, nil
+	case key.Matches(msg, VisualKeys.Toggle):
+		if s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			s.visualSel.toggle(s.visibleRows[s.cursor].task.ID)
+		}
+		return s, nil
+	case key.Matches(msg, VisualKeys.SelectAll):
+		s.visualSel.selectAll(s.backlog.AllTasks)
+		return s, nil
+	case key.Matches(msg, VisualKeys.Action):
+		s.visualSel.cancel()
+		return s, nil
+	case key.Matches(msg, VisualKeys.Down):
+		if s.cursor < len(s.visibleRows)-1 {
+			s.cursor++
+			s.visualSel.extendDown(s.backlog.AllTasks, s.cursor)
+		}
+		return s, nil
+	case key.Matches(msg, VisualKeys.Up):
+		if s.cursor > 0 {
+			s.cursor--
+			s.visualSel.extendUp(s.backlog.AllTasks, s.cursor)
 		}
 		return s, nil
 	}
 	return s, nil
 }
 
+// --- Detail key handler ---
+
 func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, Keys.Back), key.Matches(msg, Keys.Quit):
+	case key.Matches(msg, NormalKeys.Back):
 		s.mode = modeTree
+		s.detailView = nil
 		return s, nil
 
-	case key.Matches(msg, Keys.Sort), key.Matches(msg, Keys.CycleStatus):
+	case key.Matches(msg, NormalKeys.CycleStatus):
 		s.mode = modeStatusPopup
 		if s.detailView != nil {
 			s.statusPopup = newStatusPopup(s.detailView.task, 30)
@@ -233,7 +455,7 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.statusRunning = true
 		return s, nil
 
-	case key.Matches(msg, Keys.Reload), key.Matches(msg, Keys.Related):
+	case key.Matches(msg, NormalKeys.Reload):
 		if s.detailView != nil {
 			s.detailView.resolveLinks()
 			s.detailView.state = detailRelated
@@ -241,7 +463,7 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Enter):
+	case key.Matches(msg, NormalKeys.Enter):
 		if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
 			link := s.detailView.relatedItems[s.detailView.relatedCursor]
 			if link.Task != nil {
@@ -251,7 +473,7 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Up):
+	case key.Matches(msg, NormalKeys.Up):
 		if s.detailView != nil && s.detailView.state == detailRelated {
 			if s.detailView.relatedCursor > 0 {
 				s.detailView.relatedCursor--
@@ -259,16 +481,33 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case key.Matches(msg, Keys.Down):
+	case key.Matches(msg, NormalKeys.Down):
 		if s.detailView != nil && s.detailView.state == detailRelated {
 			if s.detailView.relatedCursor < len(s.detailView.relatedItems)-1 {
 				s.detailView.relatedCursor++
 			}
 		}
 		return s, nil
+
+	case key.Matches(msg, NormalKeys.HalfDown):
+		if s.detailView != nil {
+			s.detailView.scrollOffset += (s.height - 8) / 2
+		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.HalfUp):
+		if s.detailView != nil {
+			s.detailView.scrollOffset -= (s.height - 8) / 2
+			if s.detailView.scrollOffset < 0 {
+				s.detailView.scrollOffset = 0
+			}
+		}
+		return s, nil
 	}
 	return s, nil
 }
+
+// --- Actions ---
 
 func (s *taskListModel) enterDetail(task *model.Task) {
 	dv := newDetailView(s.backlog, task, s.width, s.height)
@@ -284,13 +523,34 @@ func (s *taskListModel) toggleDone(task *model.Task) {
 		task.Status = model.StatusDone
 	}
 	s.rebuild()
-	// Sync detail if open
 	if s.detailView != nil && s.detailView.task.ID == task.ID {
 		s.detailView.task.Status = task.Status
 	}
 }
 
+func (s *taskListModel) centerCursor() {
+	// Centers the viewport on the cursor by adjusting scroll position
+	half := (s.height - 8) / 2
+	if half < 1 {
+		half = 1
+	}
+	target := s.cursor - half
+	if target < 0 {
+		target = 0
+	}
+	if s.treeReady {
+		s.treeViewport.YOffset = target
+	}
+}
+
+// --- View ---
+
 func (s *taskListModel) View() string {
+	// Update sidebar with current cursor item
+	if s.sidebar != nil && len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+		s.sidebar.updateTask(s.visibleRows[s.cursor].task)
+	}
+
 	switch s.mode {
 	case modeDetail:
 		if s.detailView != nil {
@@ -307,6 +567,8 @@ func (s *taskListModel) View() string {
 			return s.searchModal.View()
 		}
 		return ""
+	case modeInlineFilter:
+		return s.renderTreeFull()
 	default:
 		return s.renderTreeFull()
 	}
@@ -315,13 +577,30 @@ func (s *taskListModel) View() string {
 func (s *taskListModel) renderTreeFull() string {
 	var b strings.Builder
 
-	if s.filterOn {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(fmt.Sprintf(" Filter: %s", s.filterText)))
+	// Inline filter input bar
+	if s.mode == modeInlineFilter {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" / "))
+		b.WriteString(s.inlineInput.View())
+		b.WriteString("\n")
+	} else if s.filterOn {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(
+			fmt.Sprintf(" Filter: %s  (%d items)", s.filterText, len(s.visibleRows))))
 		b.WriteString("\n")
 	}
 
+	// Visual mode indicator
+	if s.visualSel.active {
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorAccent).Bold(true).Render(
+			s.visualSel.indicator()))
+		b.WriteString("\n")
+	}
+
+	// Main tree content
 	content := s.renderTree()
-	treeH := s.height - 6
+	treeH := s.height - 8
+	if s.mode == modeInlineFilter || s.filterOn || s.visualSel.active {
+		treeH = s.height - 9
+	}
 	if treeH < 5 {
 		treeH = 5
 	}
@@ -336,9 +615,22 @@ func (s *taskListModel) renderTreeFull() string {
 
 	b.WriteString(s.treeViewport.View())
 
-	// Footer
+	// Scroll indicators
+	below := len(s.visibleRows) - int(s.treeViewport.YOffset) - treeH
+	if int(s.treeViewport.YOffset) > 0 {
+		b.WriteString(scrollUpStyle)
+	}
+	if below > 0 {
+		b.WriteString(scrollDownStyle)
+	}
+
+	// Contextual info
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit | ? help", len(s.visibleRows))
+	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit",
+		len(s.visibleRows))
+	if s.jumpHints.active {
+		info += s.jumpHints.bufferDisplay()
+	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
 
 	return b.String()
@@ -386,11 +678,19 @@ func (s *taskListModel) renderTree() string {
 
 		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, prefix, g, label, sp, " "+statusStr)
 
+		// Visual mode highlight
+		if s.visualSel.active && s.visualSel.selected[r.task.ID] {
+			line = lipgloss.NewStyle().Background(colorSurface).Render(line)
+		}
+
 		if i == s.cursor {
 			line = leftBorderBar + focusedRowStyle.Render(line)
 		} else {
 			line = " " + line
 		}
+
+		// Jump hint overlay
+		line = s.jumpHints.hintOverlay(i, line)
 
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -398,6 +698,8 @@ func (s *taskListModel) renderTree() string {
 
 	return b.String()
 }
+
+// --- Tree building ---
 
 func (s *taskListModel) clampCursor() {
 	if len(s.visibleRows) == 0 {
@@ -413,7 +715,6 @@ func (s *taskListModel) rebuild() {
 	filtered := s.filterTasks()
 	s.buildTree(filtered)
 	s.buildVisibleRows()
-	// Clamp cursor
 	if s.cursor >= len(s.visibleRows) && len(s.visibleRows) > 0 {
 		s.cursor = len(s.visibleRows) - 1
 	} else if len(s.visibleRows) == 0 {
@@ -423,20 +724,16 @@ func (s *taskListModel) rebuild() {
 
 func (s *taskListModel) buildVisibleRows() {
 	var out []flatRow
-	var currentEpic string
-	epicExpanded := true
 	for _, r := range s.rows {
 		if r.task.Type == model.TypeEpic {
-			currentEpic = r.task.ID
-			_, epicExpanded = s.expanded[currentEpic]
-			if !epicExpanded {
-				// Only show the epic row itself
-				out = append(out, r)
-			} else {
-				out = append(out, r)
-			}
+			out = append(out, r)
+		} else if r.epicID == "" {
+			// Root-level item (orphan story/remaining task) — always show
+			out = append(out, r)
 		} else {
-			if epicExpanded || currentEpic == "" {
+			// Child item — show only if epic is expanded
+			expanded := s.expanded[r.epicID]
+			if expanded {
 				out = append(out, r)
 			}
 		}
@@ -453,7 +750,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 	// Epics first
 	for _, ep := range epics {
 		epTask := model.EpicToTask(ep)
-		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0})
+		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0, epicID: ""})
 		seen[epTask.ID] = true
 
 		var children []*model.Task
@@ -473,11 +770,11 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		for _, child := range children {
 			if child.Type == model.TypeStory {
 				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: " └", level: 1})
+				rows = append(rows, flatRow{task: child, prefix: " └", level: 1, epicID: ep.ID})
 				for _, t := range children {
 					if t.Parent == child.ID && t.ID != child.ID {
 						seen[t.ID] = true
-						rows = append(rows, flatRow{task: t, prefix: "   •", level: 2})
+						rows = append(rows, flatRow{task: t, prefix: "   •", level: 2, epicID: ep.ID})
 					}
 				}
 			}
@@ -485,7 +782,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		for _, child := range children {
 			if !seen[child.ID] && child.Type == model.TypeTask {
 				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: " └", level: 1})
+				rows = append(rows, flatRow{task: child, prefix: " └", level: 1, epicID: ep.ID})
 			}
 		}
 	}
@@ -494,7 +791,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 	for _, t := range tasks {
 		if !seen[t.ID] && t.Type == model.TypeStory {
 			seen[t.ID] = true
-			rows = append(rows, flatRow{task: t, prefix: " └", level: 1})
+			rows = append(rows, flatRow{task: t, prefix: " └", level: 1, epicID: ""})
 			var storyChildren []*model.Task
 			for _, child := range tasks {
 				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
@@ -511,12 +808,12 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 			})
 			for _, child := range storyChildren {
 				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: "   •", level: 2})
+				rows = append(rows, flatRow{task: child, prefix: "   •", level: 2, epicID: ""})
 			}
 		}
 	}
 
-	// Remaining items — sort done last
+	// Remaining items
 	var remaining []*model.Task
 	for _, t := range tasks {
 		if !seen[t.ID] {
@@ -532,7 +829,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		return remaining[i].ID < remaining[j].ID
 	})
 	for _, t := range remaining {
-		rows = append(rows, flatRow{task: t, prefix: "", level: 0})
+		rows = append(rows, flatRow{task: t, prefix: "", level: 0, epicID: ""})
 	}
 
 	s.rows = rows
@@ -554,5 +851,3 @@ func (s *taskListModel) filterTasks() []*model.Task {
 	}
 	return filtered
 }
-
-
