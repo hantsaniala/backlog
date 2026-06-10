@@ -430,6 +430,8 @@ func (s *taskListModel) handleJumpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok && target >= 0 && target < len(s.visibleRows) {
 			s.cursor = target
 			s.clampCursor()
+			task := s.visibleRows[target].task
+			return s, jumpNotificationCmd(task.ID)
 		}
 	}
 	return s, nil
@@ -668,6 +670,10 @@ func (s *taskListModel) renderTreeFull() string {
 	b.WriteString("\n")
 	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit",
 		totalItems)
+	if s.filterOn {
+		info = fmt.Sprintf("🔍 %q (%d) ", s.filterText, totalItems) +
+			" | " + info
+	}
 	if s.jumpHints.active {
 		info += s.jumpHints.bufferDisplay()
 	}

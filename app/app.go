@@ -193,6 +193,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reloadErrorMsg:
 		m.reloading = false
 		return m, nil
+
+	case notificationMsg:
+		m.setNotification(msg.text)
+		return m, nil
 	}
 
 	// Route msg to current screen
