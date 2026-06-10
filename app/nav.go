@@ -63,6 +63,35 @@ func (ns *NavigationStack) Pop() (ViewState, bool) {
 	return v, true
 }
 
+// ForwardStack stores pages for forward navigation after g f.
+type ForwardStack struct {
+	stack []ViewState
+}
+
+func NewForwardStack() *ForwardStack {
+	return &ForwardStack{stack: make([]ViewState, 0)}
+}
+
+func (fs *ForwardStack) Push(v ViewState) {
+	if len(fs.stack) >= 50 {
+		fs.stack = fs.stack[1:]
+	}
+	fs.stack = append(fs.stack, v)
+}
+
+func (fs *ForwardStack) Pop() (ViewState, bool) {
+	if len(fs.stack) == 0 {
+		return ViewState{}, false
+	}
+	v := fs.stack[len(fs.stack)-1]
+	fs.stack = fs.stack[:len(fs.stack)-1]
+	return v, true
+}
+
+func (fs *ForwardStack) Clear() {
+	fs.stack = fs.stack[:0]
+}
+
 func (ns *NavigationStack) Peek() (ViewState, bool) {
 	if len(ns.stack) == 0 {
 		return ViewState{}, false
@@ -72,6 +101,12 @@ func (ns *NavigationStack) Peek() (ViewState, bool) {
 
 func (ns *NavigationStack) Size() int {
 	return len(ns.stack)
+}
+
+func (ns *NavigationStack) Items() []ViewState {
+	out := make([]ViewState, len(ns.stack))
+	copy(out, ns.stack)
+	return out
 }
 
 func (ns *NavigationStack) Breadcrumb(screenNames []string) string {

@@ -247,6 +247,12 @@ var (
 	pageNavStyle = lipgloss.NewStyle().
 			Foreground(colorTextDim).
 			Padding(0, 2)
+
+	// Per-page border colors
+	colorPageBacklog = lipgloss.Color("#00ffff")
+	colorPageDetail  = lipgloss.Color("#00ff88")
+	colorPageSprint  = lipgloss.Color("#ff44ff")
+	colorPagePopup   = lipgloss.Color("#ffff44")
 )
 
 func StatusBadge(status string) string {

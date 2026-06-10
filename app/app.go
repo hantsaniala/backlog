@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,10 +38,12 @@ type Model struct {
 	// Navigation
 	inputMode     InputMode
 	navStack      *NavigationStack
+	forwardStack  *ForwardStack
 	ctrlWPending  bool
 	currentPanel  panelFocus
 	panelMaximized bool
 	savedPanels   []panelFocus
+	lastGTime     time.Time
 
 	// Overlay models
 	palette    *paletteModel
@@ -61,6 +64,7 @@ func New(b *model.Backlog) *Model {
 		tabNames:      []string{"1 Dashboard", "2 Tasks", "3 Sprints"},
 		inputMode:     ModeNormal,
 		navStack:      NewNavigationStack(),
+		forwardStack:  NewForwardStack(),
 		savedPanels:   make([]panelFocus, 0),
 		sidebar:       newSidebarState(),
 		helpModel:     newHelpModel(),
@@ -197,6 +201,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case notificationMsg:
 		m.setNotification(msg.text)
 		return m, nil
+
+	case historyNavigateMsg:
+		// Pop to the selected history entry
+		items := m.navStack.Items()
+		if msg.index >= 0 && msg.index < len(items) {
+			target := items[msg.index]
+			// Pop all entries up to and including the target
+			for m.navStack.Size() > 0 {
+				top, _ := m.navStack.Pop()
+				if top.Screen == target.Screen && top.TaskID == target.TaskID {
+					break
+				}
+			}
+			m.currentScreen = target.Screen
+			m.inputMode = ModeNormal
+		}
+		return m, nil
+	}
+
+	// g-sequence navigation (g b/f/h/s — checked before screen routing)
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if !m.lastGTime.IsZero() && time.Since(m.lastGTime) < 500*time.Millisecond {
+			m.lastGTime = time.Time{}
+			switch keyMsg.String() {
+			case "b":
+				m.handleGoBack()
+				return m, nil
+			case "f":
+				m.handleGoForward()
+				return m, nil
+			case "h":
+				return m.handleHistoryPopup()
+			case "s":
+				m.navStack.Push(ViewState{Screen: m.currentScreen})
+				m.currentScreen = screenSprintView
+				m.inputMode = ModeNormal
+				m.forwardStack.Clear()
+				return m, nil
+			}
+		}
+
+		// Track 'g' key for g-sequence timing
+		if keyMsg.String() == "g" {
+			m.lastGTime = time.Now()
+		}
 	}
 
 	// Route msg to current screen
@@ -237,6 +286,32 @@ func (m *Model) handlePaletteCommand(cmd string) {
 	case cmd == "focus sprints":
 		m.currentScreen = screenSprintView
 	}
+}
+
+func (m *Model) handleGoBack() {
+	if prev, ok := m.navStack.Pop(); ok {
+		m.forwardStack.Push(ViewState{Screen: m.currentScreen})
+		m.currentScreen = prev.Screen
+	}
+}
+
+func (m *Model) handleGoForward() {
+	if next, ok := m.forwardStack.Pop(); ok {
+		m.navStack.Push(ViewState{Screen: m.currentScreen})
+		m.currentScreen = next.Screen
+	}
+}
+
+func (m *Model) handleHistoryPopup() (tea.Model, tea.Cmd) {
+	if m.navStack.Size() == 0 {
+		m.setNotification("No navigation history")
+		return m, nil
+	}
+	m.palette = newPaletteModel(m.width, m.height)
+	m.palette.historyMode = true
+	m.palette.historyItems = m.navStack.Items()
+	m.inputMode = ModeCommandPalette
+	return m, m.palette.Init()
 }
 
 func (m *Model) setNotification(msg string) {
@@ -340,7 +415,22 @@ func (m *Model) renderHeader() string {
 }
 
 func (m *Model) renderFooter() string {
-	hints := m.contextualHints()
+	if m.reloading {
+		return lipgloss.NewStyle().
+			Foreground(colorTextDim).
+			Padding(0, 2).
+			Render(" ⠋ Loading...")
+	}
+	var hints string
+	if s, ok := m.screens[m.currentScreen]; ok {
+		type hintProvider interface{ footerHint() string }
+		if hp, ok := s.(hintProvider); ok {
+			hints = hp.footerHint()
+		}
+	}
+	if hints == "" {
+		hints = m.contextualHints()
+	}
 	return lipgloss.NewStyle().
 		Foreground(colorTextDim).
 		Padding(0, 2).

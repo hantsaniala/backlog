@@ -40,6 +40,10 @@ type sprintViewModel struct {
 	rightReady    bool
 }
 
+func (s *sprintViewModel) footerHint() string {
+	return " h/l:move column | j/k:move card | >:to sprint | <:to backlog | s:status | /:search"
+}
+
 func newScreenSprintView(b *model.Backlog) *sprintViewModel {
 	m := &sprintViewModel{backlog: b}
 	m.refresh()
@@ -286,7 +290,7 @@ func (s *sprintViewModel) View() string {
 	// Left panel: unassigned items
 	leftBorder := colorBorder
 	if s.focus == paneLeft {
-		leftBorder = colorPrimary
+		leftBorder = colorPageSprint
 	}
 	leftContent := s.renderLeftPanel(panelW, panelH)
 	leftPanel := lipgloss.NewStyle().
@@ -299,7 +303,7 @@ func (s *sprintViewModel) View() string {
 	// Right panel: sprint backlog
 	rightBorder := colorBorder
 	if s.focus == paneRight {
-		rightBorder = colorPrimary
+		rightBorder = colorPageSprint
 	}
 	rightContent := s.renderRightPanel(panelW, panelH)
 	rightPanel := lipgloss.NewStyle().
@@ -310,11 +314,6 @@ func (s *sprintViewModel) View() string {
 		Render(rightContent)
 
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, "  ", rightPanel))
-
-	// Footer
-	b.WriteString("\n")
-	cmdBar := fmt.Sprintf(" Tab: switch panel | >: move to sprint | <: remove | s: cycle status | ←→: sprint selector | q: quit")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(cmdBar))
 
 	return b.String()
 }

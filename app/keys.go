@@ -63,12 +63,13 @@ type insertKeyMap struct {
 }
 
 type visualKeyMap struct {
-	Cancel   key.Binding
-	Down     key.Binding
-	Up       key.Binding
+	Cancel    key.Binding
+	Down      key.Binding
+	Up        key.Binding
 	Toggle   key.Binding
 	SelectAll key.Binding
 	Action   key.Binding
+	Assign   key.Binding
 }
 
 var NormalKeys = normalKeyMap{
@@ -89,7 +90,7 @@ var NormalKeys = normalKeyMap{
 	Reload:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "related items")),
 	Expand:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "expand / toggle")),
 	Related:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "related items")),
-	CycleStatus: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "cycle status")),
+	CycleStatus: key.NewBinding(key.WithKeys("s", "e"), key.WithHelp("s/e", "cycle status")),
 	MoveRight:   key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "move to right")),
 	MoveLeft:    key.NewBinding(key.WithKeys("<", ","), key.WithHelp("<", "move to left")),
 	One:         key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
@@ -131,7 +132,8 @@ var VisualKeys = visualKeyMap{
 	Up:        key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "extend up")),
 	Toggle:    key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle item")),
 	SelectAll: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "select all")),
-	Action:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "bulk action")),
+	Action:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "bulk status")),
+	Assign:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "bulk assign")),
 }
 
 func ModeKeyMap(mode InputMode) interface{} {

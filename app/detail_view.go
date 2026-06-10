@@ -38,14 +38,37 @@ type detailView struct {
 
 	// Scroll tracking
 	scrollOffset int
+
+	// Sub-tasks checklist
+	subtaskFocus  bool
+	subtaskCursor int
+	subtaskTasks  []*model.Task
 }
 
 func newDetailView(b *model.Backlog, t *model.Task, w, h int) *detailView {
-	return &detailView{
+	d := &detailView{
 		task:    t,
 		backlog: b,
 		width:   w,
 		height:  h,
+	}
+	d.resolveChildren()
+	return d
+}
+
+func (d *detailView) resolveChildren() {
+	d.subtaskTasks = nil
+	if d.task == nil {
+		return
+	}
+	for _, id := range d.task.Children {
+		if id == "" {
+			continue
+		}
+		t := d.backlog.TaskByID(id)
+		if t != nil {
+			d.subtaskTasks = append(d.subtaskTasks, t)
+		}
 	}
 }
 
@@ -148,6 +171,37 @@ func (d *detailView) renderMain() string {
 		}
 	}
 
+	// Sub-tasks
+	if len(d.subtaskTasks) > 0 {
+		right.WriteString("\n")
+		title := " Sub-tasks"
+		if d.subtaskFocus {
+			title += " [focused]"
+		}
+		right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(title))
+		right.WriteString("\n")
+		for i, st := range d.subtaskTasks {
+			cb := "[ ]"
+			if st.Status == model.StatusDone || st.Status == model.StatusCancelled {
+				cb = "[x]"
+			}
+			assignee := ""
+			if st.Assignee != "" {
+				assignee = fmt.Sprintf(" (%s)", st.Assignee)
+			}
+			line := fmt.Sprintf("  %s %s %s%s", cb, st.ID, st.Summary, assignee)
+			if i == d.subtaskCursor {
+				if d.subtaskFocus {
+					line = lipgloss.NewStyle().Foreground(colorTextBright).Background(colorPageBacklog).Render(" " + line)
+				} else {
+					line = lipgloss.NewStyle().Foreground(colorTextDim).Render(line)
+				}
+			}
+			right.WriteString(line)
+			right.WriteString("\n")
+		}
+	}
+
 	// Links
 	if len(d.relatedItems) > 0 {
 		right.WriteString("\n")
@@ -195,7 +249,7 @@ func (d *detailView) renderMain() string {
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	detailStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(colorPageDetail).
 		Padding(0, 1)
 
 	return detailStyle.Render(content)
@@ -235,7 +289,7 @@ func (d *detailView) renderRelatedPopup() string {
 	content := lipgloss.NewStyle().
 		Width(popupW).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
+		BorderForeground(colorPagePopup).
 		Padding(1, 2).
 		Background(colorSurface).
 		Render(b.String())

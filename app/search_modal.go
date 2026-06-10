@@ -22,6 +22,7 @@ type searchModalModel struct {
 	width    int
 	height   int
 	allTasks []*model.Task
+	lastQuery string
 }
 
 func newSearchModal(b *model.Backlog, width, height int) *searchModalModel {
@@ -78,6 +79,7 @@ func (m *searchModalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *searchModalModel) filter() {
 	query := strings.ToLower(m.input.Value())
+	m.lastQuery = query
 	if query == "" {
 		m.results = m.allTasks
 		m.cursor = 0
@@ -149,6 +151,18 @@ func (m *searchModalModel) View() string {
 					Padding(0, 1).
 					Render(line)
 			} else {
+				// Highlight matching term in yellow
+				if m.lastQuery != "" {
+					highlightStyle := lipgloss.NewStyle().Background(lipgloss.Color("#ffff00")).Foreground(lipgloss.Color("#000000"))
+					lower := strings.ToLower(line)
+					idx := strings.Index(lower, m.lastQuery)
+					if idx >= 0 {
+						before := line[:idx]
+						match := line[idx : idx+len(m.lastQuery)]
+						after := line[idx+len(m.lastQuery):]
+						line = fmt.Sprintf("%s%s%s", before, highlightStyle.Render(match), after)
+					}
+				}
 				line = lipgloss.NewStyle().Foreground(colorText).Padding(0, 1).Render(line)
 			}
 			b.WriteString(line)

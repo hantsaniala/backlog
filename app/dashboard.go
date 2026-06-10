@@ -230,6 +230,10 @@ func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.Projec
 	b.WriteString("\n")
 }
 
+func (s *dashboardModel) footerHint() string {
+	return " 2:backlog | 3:sprints | ::cmd | q:quit"
+}
+
 func (s *dashboardModel) refresh() {
 	s.ready = false
 }
