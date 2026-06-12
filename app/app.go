@@ -65,6 +65,9 @@ type Model struct {
 
 	// Configuration
 	conf *config.Config
+
+	// Effective content width (minus sidebar when open)
+	effectiveWidth int
 }
 
 func New(b *model.Backlog, cfg *config.Config) *Model {
@@ -122,13 +125,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.effectiveWidth = m.width
+		if m.sidebar.open {
+			sidebarW := m.width * 30 / 100
+			if sidebarW > 50 {
+				sidebarW = 50
+			}
+			m.effectiveWidth = m.width - sidebarW - 2
+			if m.effectiveWidth < 40 {
+				m.effectiveWidth = 40
+			}
+		}
 		if m.palette != nil {
 			m.palette.width = msg.Width
 			m.palette.height = msg.Height
 		}
+		// Send adjusted width to sub-screens
+		adj := msg
+		adj.Width = m.effectiveWidth
 		for _, s := range m.screens {
 			if u, ok := s.(tea.Model); ok {
-				u.Update(msg)
+				u.Update(adj)
 			}
 		}
 
@@ -205,10 +222,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, NormalKeys.Preview):
 			m.sidebar.toggle()
-			return m, nil
+			return m, resendWindowSize(m.width, m.height)
 		case msg.String() == "ctrl+p" && m.sidebar.open:
 			m.sidebar.pin()
-			return m, nil
+			return m, resendWindowSize(m.width, m.height)
 		case key.Matches(msg, NormalKeys.PanelLeft):
 			// Send panel focus message to current screen
 			return m, nil
@@ -560,6 +577,12 @@ func (m *Model) renderFooter() string {
 		Foreground(colorTextDim).
 		Padding(0, 2).
 		Render(hints + strings.Repeat(" ", footerW) + posFmt)
+}
+
+func resendWindowSize(w, h int) tea.Cmd {
+	return func() tea.Msg {
+		return tea.WindowSizeMsg{Width: w, Height: h}
+	}
 }
 
 func (m *Model) contextualHints() string {
