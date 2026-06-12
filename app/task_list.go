@@ -73,6 +73,9 @@ type taskListModel struct {
 
 	marks          map[string]string
 	lastFilterText string
+
+	// Mouse hover
+	hoverLine int // -1 = no hover
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
@@ -90,6 +93,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		jumpHints:     newJumpHintState(),
 		visualSel:     newVisualSelection(),
 		marks:         make(map[string]string),
+		hoverLine:     -1,
 	}
 	m.rebuild()
 	if len(m.visibleRows) > 0 {
@@ -117,6 +121,7 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		s.hoverLine = -1
 		switch s.mode {
 		case modeTree:
 			return s.handleTreeKey(msg)
@@ -140,6 +145,26 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reloadMsg:
 		s.rebuild()
+
+	case tea.MouseMsg:
+		// Hover: convert terminal coords to tree-relative.
+		// Header = 2 lines. Tree starts at y=2.
+		treeY := msg.Y - 2
+		if treeY >= 0 && treeY < s.treeViewport.Height {
+			bufLine := treeY + int(s.treeViewport.YOffset)
+			if bufLine >= 0 && bufLine < len(s.visibleRows) {
+				s.hoverLine = bufLine
+			} else {
+				s.hoverLine = -1
+			}
+		} else {
+			s.hoverLine = -1
+		}
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if s.hoverLine >= 0 && s.hoverLine < len(s.visibleRows) {
+				s.cursor = s.hoverLine
+			}
+		}
 	}
 
 	return s, nil
@@ -906,14 +931,16 @@ func (s *taskListModel) renderTreeFull() string {
 	}
 
 	if !s.treeReady {
-		s.treeViewport = viewport.New(s.width-2, treeH)
+		s.treeViewport = viewport.New(s.width-3, treeH)
 		s.treeReady = true
 	}
-	s.treeViewport.Width = s.width - 2
+	s.treeViewport.Width = s.width - 3
 	s.treeViewport.Height = treeH
 	s.treeViewport.SetContent(content)
 
-	b.WriteString(s.treeViewport.View())
+	vpView := s.treeViewport.View()
+	scrollbarStr := renderScrollbar(s.treeViewport, treeH)
+	b.WriteString(addScrollbar(vpView, scrollbarStr))
 
 	// Scroll indicators
 	below := len(s.visibleRows) - int(s.treeViewport.YOffset) - treeH
@@ -967,10 +994,9 @@ func (s *taskListModel) renderTree() string {
 	}
 
 	for i, r := range s.visibleRows {
-		prefix := r.prefix
 		indent := strings.Repeat(" ", r.level)
 
-		// Expand indicator for epics
+		// Expand indicator and branch prefix
 		expandSymbol := " "
 		if r.task.Type == model.TypeEpic {
 			if s.expanded[r.task.ID] {
@@ -988,6 +1014,12 @@ func (s *taskListModel) renderTree() string {
 			sp = lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf(" %dsp", *r.task.StoryPoints))
 		}
 
+		// Branch prefix for non-root items
+		branchPrefix := r.prefix
+		if r.level > 0 && branchPrefix == "" {
+			branchPrefix = "├─"
+		}
+
 		label := r.task.ID
 		if r.task.Summary != "" {
 			label = r.task.ID + "  " + r.task.Summary
@@ -1003,7 +1035,7 @@ func (s *taskListModel) renderTree() string {
 		}
 		label = labelStyle.Render(label)
 
-		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, prefix, g, label, sp, " "+statusStr)
+		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, branchPrefix, g, label, sp, " "+statusStr)
 
 		// Visual mode highlight
 		if s.visualSel.active && s.visualSel.selected[r.task.ID] {
@@ -1012,6 +1044,9 @@ func (s *taskListModel) renderTree() string {
 
 		if i == s.cursor {
 			line = leftBorderBar + focusedRowStyle.Render(line)
+		} else if i == s.hoverLine && s.hoverLine >= 0 {
+			// Subtle hover background; only when mouse recently moved
+			line = " " + lipgloss.NewStyle().Background(colorSurfaceAlt).Render(line)
 		} else {
 			line = " " + line
 		}
@@ -1184,22 +1219,60 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 			}
 			return children[i].ID < children[j].ID
 		})
+
+		// Collect level-1 children with their grandchildren
+		type childGroup struct {
+			task     *model.Task
+			grandchildren []*model.Task
+		}
+		var groups []childGroup
 		for _, child := range children {
 			if child.Type == model.TypeStory {
-				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: " └", level: 1, epicID: ep.ID})
+				var gc []*model.Task
 				for _, t := range children {
 					if t.Parent == child.ID && t.ID != child.ID {
-						seen[t.ID] = true
-						rows = append(rows, flatRow{task: t, prefix: "   •", level: 2, epicID: ep.ID})
+						gc = append(gc, t)
 					}
 				}
+				sort.Slice(gc, func(i, j int) bool {
+					di := gc[i].Status == model.StatusDone
+					dj := gc[j].Status == model.StatusDone
+					if di != dj {
+						return !di
+					}
+					return gc[i].ID < gc[j].ID
+				})
+				groups = append(groups, childGroup{task: child, grandchildren: gc})
 			}
 		}
 		for _, child := range children {
-			if !seen[child.ID] && child.Type == model.TypeTask {
-				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: " └", level: 1, epicID: ep.ID})
+			if !seen[child.ID] && child.Type != model.TypeStory {
+				groups = append(groups, childGroup{task: child})
+			}
+		}
+
+		for gi, g := range groups {
+			isLast := gi == len(groups)-1
+			p := "├─"
+			if isLast {
+				p = "└─"
+			}
+			seen[g.task.ID] = true
+			rows = append(rows, flatRow{task: g.task, prefix: p, level: 1, epicID: ep.ID})
+
+			for ci, gc := range g.grandchildren {
+				gcPrefix := "├─"
+				if ci == len(g.grandchildren)-1 {
+					gcPrefix = "└─"
+				}
+				// Include ancestor pipe if parent is not the last sibling
+				if !isLast {
+					gcPrefix = "│ " + gcPrefix
+				} else {
+					gcPrefix = "  " + gcPrefix
+				}
+				seen[gc.ID] = true
+				rows = append(rows, flatRow{task: gc, prefix: gcPrefix, level: 2, epicID: ep.ID})
 			}
 		}
 	}
@@ -1208,7 +1281,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 	for _, t := range tasks {
 		if !seen[t.ID] && t.Type == model.TypeStory {
 			seen[t.ID] = true
-			rows = append(rows, flatRow{task: t, prefix: " └", level: 1, epicID: ""})
+			rows = append(rows, flatRow{task: t, prefix: "├─", level: 1, epicID: ""})
 			var storyChildren []*model.Task
 			for _, child := range tasks {
 				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
@@ -1223,9 +1296,13 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 				}
 				return storyChildren[i].ID < storyChildren[j].ID
 			})
-			for _, child := range storyChildren {
+			for ci, child := range storyChildren {
+				gcPrefix := "├─"
+				if ci == len(storyChildren)-1 {
+					gcPrefix = "└─"
+				}
 				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: "   •", level: 2, epicID: ""})
+				rows = append(rows, flatRow{task: child, prefix: gcPrefix, level: 2, epicID: ""})
 			}
 		}
 	}

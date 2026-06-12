@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -38,6 +39,9 @@ type sprintViewModel struct {
 	rightViewport viewport.Model
 	leftReady     bool
 	rightReady    bool
+
+	// Progress bar
+	prog progress.Model
 }
 
 func (s *sprintViewModel) footerHint() string {
@@ -52,7 +56,7 @@ func (s *sprintViewModel) footerPos() string {
 }
 
 func newScreenSprintView(b *model.Backlog) *sprintViewModel {
-	m := &sprintViewModel{backlog: b}
+	m := &sprintViewModel{backlog: b, prog: newProgressBar(40)}
 	m.refresh()
 	return m
 }
@@ -276,12 +280,15 @@ func (s *sprintViewModel) View() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(fmt.Sprintf(" — %s", current.Goal)))
 	}
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(fmt.Sprintf(" %s", progressBar(done, total, barW))))
 	pct := 0.0
 	if total > 0 {
-		pct = float64(done) / float64(total) * 100
+		pct = float64(done) / float64(total)
 	}
-	b.WriteString(fmt.Sprintf("  (%.0f%%)", pct))
+	s.prog.Width = min(barW, 30)
+	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(" " + s.prog.ViewAs(pct)))
+	if total > 0 {
+		b.WriteString(fmt.Sprintf("  %d/%d (%.0f%%)", done, total, pct*100))
+	}
 	b.WriteString("\n\n")
 
 	// Two panels

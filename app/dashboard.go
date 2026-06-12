@@ -87,7 +87,9 @@ func (s *dashboardModel) View() string {
 	} else {
 		s.viewport.SetContent(content)
 	}
-	return s.viewport.View()
+	vpView := s.viewport.View()
+	sb := renderScrollbar(s.viewport, viewportH)
+	return addScrollbar(vpView, sb)
 }
 
 func (s *dashboardModel) printHealth(b *strings.Builder) {

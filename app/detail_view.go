@@ -272,7 +272,9 @@ func (d *detailView) renderMain() string {
 		d.view.YOffset = d.scrollOffset
 	}
 	d.view.SetContent(wrapped)
-	return d.view.View()
+	vpView := d.view.View()
+	sb := renderScrollbar(d.view, vpH)
+	return addScrollbar(vpView, sb)
 }
 
 func (d *detailView) renderRelatedPopup() string {

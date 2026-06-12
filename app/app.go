@@ -22,6 +22,12 @@ const (
 	screenSprintView
 )
 
+// mouseState tracks the latest mouse position for hover indicators.
+type mouseState struct {
+	X, Y    int
+	visible bool // true if last event was a mouse move
+}
+
 type Model struct {
 	backlog       *model.Backlog
 	currentScreen screen
@@ -47,6 +53,9 @@ type Model struct {
 
 	// Configuration
 	conf *config.Config
+
+	// Mouse state for hover/click
+	mouse mouseState
 }
 
 func New(b *model.Backlog, cfg *config.Config) *Model {
@@ -110,6 +119,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Clear mouse hover on keyboard activity
+		m.mouse.visible = false
+
 		if m.inputMode == ModeCommandPalette && m.palette != nil {
 			updated, cmd := m.palette.Update(msg)
 			m.palette = updated.(*paletteModel)
@@ -152,6 +164,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, NormalKeys.Three):
 			m.currentScreen = screenSprintView
 			return m, nil
+		}
+
+	case tea.MouseMsg:
+		m.mouse = mouseState{X: msg.X, Y: msg.Y, visible: msg.Action == tea.MouseActionMotion}
+		// Sprint view click-to-focus: left click on a panel header shifts focus.
+		if m.currentScreen == screenSprintView && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			// Header = 2 lines, title block = ~4 lines, then panels start.
+			panelY := msg.Y - 6
+			if panelY >= 0 {
+				panelW := (m.width - 4) / 2
+				if panelW < 30 {
+					panelW = 30
+				}
+				// Left panel occupies columns 3..(3+panelW), gap "  ", right panel after.
+				leftEnd := 3 + panelW
+				gapEnd := leftEnd + 2
+				if sv, ok := m.screens[screenSprintView].(*sprintViewModel); ok {
+					if msg.X >= 3 && msg.X < leftEnd {
+						sv.focus = paneLeft
+					} else if msg.X >= gapEnd && msg.X < gapEnd+panelW {
+						sv.focus = paneRight
+					}
+				}
+			}
 		}
 
 	case reloadMsg:

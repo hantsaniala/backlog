@@ -2,8 +2,11 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/config"
 )
@@ -385,4 +388,64 @@ func ApplyTheme(t *config.ThemeConfig) {
 // Conf returns the app config, or nil if not set.
 func (m *Model) Conf() *config.Config {
 	return m.conf
+}
+
+// newProgressBar returns a progress.Model with solid fill and no percentage.
+func newProgressBar(width int) progress.Model {
+	return progress.New(
+		progress.WithSolidFill("#10B981"),
+		progress.WithFillCharacters('█', '░'),
+		progress.WithoutPercentage(),
+		progress.WithWidth(width),
+	)
+}
+
+// renderScrollbar returns a column of scrollbar characters for a viewport.
+// Returns one character per line of height. "█" for the thumb, "│" for track.
+func renderScrollbar(vp viewport.Model, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	total := vp.TotalLineCount()
+	if height >= total {
+		return strings.Repeat("│\n", height-1) + "│"
+	}
+	thumbH := int(math.Max(1, float64(height*height)/float64(total)))
+	scrollRange := total - height
+	thumbPos := vp.YOffset * (height - thumbH) / max(1, scrollRange)
+	var sb strings.Builder
+	for i := 0; i < height; i++ {
+		if i >= thumbPos && i < thumbPos+thumbH {
+			sb.WriteString("█")
+		} else {
+			sb.WriteString("│")
+		}
+		if i < height-1 {
+			sb.WriteByte('\n')
+		}
+	}
+	return sb.String()
+}
+
+// addScrollbar appends a rendered scrollbar column to a viewport's output.
+func addScrollbar(vpView string, scrollbarStr string) string {
+	lines := strings.Split(vpView, "\n")
+	sbLines := strings.Split(scrollbarStr, "\n")
+	maxLen := len(lines)
+	if len(sbLines) > maxLen {
+		maxLen = len(sbLines)
+	}
+	// Pad both slices to equal length with empty strings
+	for len(lines) < maxLen {
+		lines = append(lines, "")
+	}
+	for len(sbLines) < maxLen {
+		sbLines = append(sbLines, "│")
+	}
+	for i := range lines {
+		if i < len(sbLines) {
+			lines[i] = lines[i] + " " + sbLines[i]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
