@@ -44,6 +44,13 @@ func (s *sprintViewModel) footerHint() string {
 	return " h/l:move column | j/k:move card | >:to sprint | <:to backlog | s:status | /:search"
 }
 
+func (s *sprintViewModel) footerPos() string {
+	if s.focus == paneLeft {
+		return fmt.Sprintf("%d/%d L", s.leftCursor+1, len(s.leftItems))
+	}
+	return fmt.Sprintf("%d/%d R", s.rightCursor+1, len(s.rightItems))
+}
+
 func newScreenSprintView(b *model.Backlog) *sprintViewModel {
 	m := &sprintViewModel{backlog: b}
 	m.refresh()

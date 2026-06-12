@@ -466,20 +466,28 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderHeader() string {
-	var parts []string
+	var leftParts, rightParts []string
+
+	// Mode indicator (vim-style colored block)
+	modeLabel := ModeStyle(m.inputMode).Render(fmt.Sprintf(" %s ", m.inputMode.String()))
+	leftParts = append(leftParts, modeLabel)
 
 	// Breadcrumb
 	bc := m.navStack.Breadcrumb(m.tabNames)
 	current := breadcrumbFromScreen(m.currentScreen)
 	if bc != "" {
-		parts = append(parts, breadcrumbStyle.Render(bc+navArrowStyle+current))
+		leftParts = append(leftParts, breadcrumbStyle.Render(bc+navArrowStyle+current))
 	} else {
-		parts = append(parts, breadcrumbActiveStyle.Render(current))
+		leftParts = append(leftParts, breadcrumbActiveStyle.Render(current))
 	}
 
-	// Mode indicator
-	modeLabel := ModeStyle(m.inputMode).Render(fmt.Sprintf(" %s ", m.inputMode.String()))
-	parts = append(parts, modeLabel)
+	// Right side: nvim indicator, git branch, time
+	if m.nvimMode {
+		rightParts = append(rightParts, lipgloss.NewStyle().
+			Foreground(colorSuccess).
+			Padding(0, 1).
+			Render("[nvim]"))
+	}
 
 	// Git branch
 	if m.backlog != nil && m.backlog.Git != nil && m.backlog.Git.Branch != "" {
@@ -491,22 +499,23 @@ func (m *Model) renderHeader() string {
 			Foreground(colorSecondary).
 			Padding(0, 1).
 			Render(branchLabel)
-		parts = append(parts, branchPart)
+		rightParts = append(rightParts, branchPart)
 	}
 
-	// Time
-	parts = append(parts, timeStyle.Render(formatTime()))
+	rightParts = append(rightParts, timeStyle.Render(formatTime()))
 
-	// Connection dot
-	parts = append(parts, connectionDotStyle.Render(""))
-
-	// Notification badge from palette
-	// (handled in footer via notification field)
+	left := strings.Join(leftParts, " ")
+	right := strings.Join(rightParts, "  ")
+	avail := m.width - len(left) - len(right)
+	if avail < 0 {
+		avail = 0
+	}
+	fill := strings.Repeat(" ", avail)
 
 	return lipgloss.NewStyle().
 		Background(colorSurface).
 		Padding(0, 1).
-		Render(strings.Join(parts, " "))
+		Render(left + fill + right)
 }
 
 func (m *Model) renderFooter() string {
@@ -516,6 +525,8 @@ func (m *Model) renderFooter() string {
 			Padding(0, 2).
 			Render(" ⠋ Loading...")
 	}
+
+	// Central hints
 	var hints string
 	if s, ok := m.screens[m.currentScreen]; ok {
 		type hintProvider interface{ footerHint() string }
@@ -526,10 +537,29 @@ func (m *Model) renderFooter() string {
 	if hints == "" {
 		hints = m.contextualHints()
 	}
+
+	// Position indicator (vim-style)
+	posStr := ""
+	if s, ok := m.screens[m.currentScreen]; ok {
+		type posProvider interface{ footerPos() string }
+		if pp, ok := s.(posProvider); ok {
+			posStr = pp.footerPos()
+		}
+	}
+
+	// Right-align position
+	footerW := m.width - len(hints) - 4
+	if footerW < 0 {
+		footerW = 0
+	}
+	posFmt := lipgloss.NewStyle().
+		Foreground(colorTextDim).
+		Render(posStr)
+
 	return lipgloss.NewStyle().
 		Foreground(colorTextDim).
 		Padding(0, 2).
-		Render(hints)
+		Render(hints + strings.Repeat(" ", footerW) + posFmt)
 }
 
 func (m *Model) contextualHints() string {

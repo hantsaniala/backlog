@@ -234,6 +234,8 @@ func (s *dashboardModel) footerHint() string {
 	return " 2:backlog | 3:sprints | ::cmd | q:quit"
 }
 
+func (s *dashboardModel) footerPos() string { return "" }
+
 func (s *dashboardModel) refresh() {
 	s.ready = false
 }

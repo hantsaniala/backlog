@@ -1061,6 +1061,13 @@ func (s *taskListModel) renderTree() string {
 	return b.String()
 }
 
+func (s *taskListModel) footerPos() string {
+	if len(s.visibleRows) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d,%d  %d%%", s.cursor+1, len(s.visibleRows), (s.cursor+1)*100/len(s.visibleRows))
+}
+
 func (s *taskListModel) footerHint() string {
 	if s.mode == modeDetail && s.detailView != nil {
 		if s.detailView.state == detailRelated {
