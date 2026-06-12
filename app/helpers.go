@@ -3,7 +3,9 @@ package app
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 
+	"github.com/hantsaniala/backlog/model"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -63,5 +65,36 @@ func jumpNotificationCmd(taskID string) tea.Cmd {
 func notifyCmd(msg string) tea.Cmd {
 	return func() tea.Msg {
 		return notificationMsg{text: msg}
+	}
+}
+
+// taskFilePath returns the full filesystem path to a task's markdown file.
+func taskFilePath(task *model.Task, backlogRoot string) string {
+	return filepath.Join(backlogRoot, "tasks", task.Filename)
+}
+
+// openInEditorCmd returns a tea.Cmd that opens a file in the configured editor.
+func openInEditorCmd(editorCmd, filePath string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editorCmd, filePath))
+		if err := cmd.Start(); err != nil {
+			return notificationMsg{text: fmt.Sprintf("Failed to open editor: %v", err)}
+		}
+		return nil
+	}
+}
+
+// editorOpenMsg is sent when the user requests to open a task file in the editor.
+type editorOpenMsg struct {
+	task   *model.Task
+	editor string
+	root   string
+}
+
+// editorOpenCmd creates a command that sends an editorOpenMsg to the app model
+// so it can handle opening the file in the configured editor.
+func editorOpenCmd(task *model.Task, editorCmd, root string) tea.Cmd {
+	return func() tea.Msg {
+		return editorOpenMsg{task: task, editor: editorCmd, root: root}
 	}
 }

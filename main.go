@@ -13,6 +13,8 @@ import (
 
 func main() {
 	path := flag.String("path", "", "path to project root (default: current directory)")
+	editor := flag.String("editor", "", "editor command for opening files (default: $EDITOR or nvim)")
+	wait := flag.Bool("wait", false, "wait for user input before exiting")
 	flag.Parse()
 
 	root := *path
@@ -22,6 +24,14 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error getting current directory: %v\n", err)
 			os.Exit(1)
+		}
+	}
+
+	editorCmd := *editor
+	if editorCmd == "" {
+		editorCmd = os.Getenv("EDITOR")
+		if editorCmd == "" {
+			editorCmd = "nvim"
 		}
 	}
 
@@ -47,8 +57,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	appModel := app.New(b)
+	appModel.SetEditor(editorCmd)
+
 	p := tea.NewProgram(
-		app.New(b),
+		appModel,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
@@ -56,5 +69,10 @@ func main() {
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
 		os.Exit(1)
+	}
+
+	if *wait {
+		fmt.Print("\nPress Enter to exit...")
+		fmt.Scanln()
 	}
 }

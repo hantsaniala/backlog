@@ -52,6 +52,21 @@ type normalKeyMap struct {
 	PanelClose key.Binding
 	PanelMax   key.Binding
 	PanelRest  key.Binding
+
+	// Editor
+	OpenInEditor key.Binding
+
+	// Vim motions
+	MarkSet    key.Binding
+	MarkJump   key.Binding
+	SearchNext key.Binding
+	SearchPrev key.Binding
+	BlockUp    key.Binding
+	BlockDown  key.Binding
+	ScrollTop  key.Binding
+	ScrollBot  key.Binding
+	WordSearch key.Binding
+	WordSearchRev key.Binding
 }
 
 type insertKeyMap struct {
@@ -116,6 +131,19 @@ var NormalKeys = normalKeyMap{
 	PanelClose:  key.NewBinding(key.WithKeys("ctrl+w", "q"), key.WithHelp("C-w q", "close panel")),
 	PanelMax:    key.NewBinding(key.WithKeys("ctrl+w", "o"), key.WithHelp("C-w o", "max panel")),
 	PanelRest:   key.NewBinding(key.WithKeys("ctrl+w", "r"), key.WithHelp("C-w r", "restore layout")),
+
+	OpenInEditor: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open in editor")),
+
+	MarkSet:     key.NewBinding(key.WithKeys("m"), key.WithHelp("m[a-z]", "set mark")),
+	MarkJump:    key.NewBinding(key.WithKeys("'"), key.WithHelp("'[a-z]", "jump to mark")),
+	SearchNext:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "next match")),
+	SearchPrev:  key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "prev match")),
+	BlockUp:     key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "prev epic")),
+	BlockDown:   key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "next epic")),
+	ScrollTop:   key.NewBinding(key.WithKeys("z", "t"), key.WithHelp("zt", "scroll cursor top")),
+	ScrollBot:   key.NewBinding(key.WithKeys("z", "b"), key.WithHelp("zb", "scroll cursor bottom")),
+	WordSearch:  key.NewBinding(key.WithKeys("*"), key.WithHelp("*", "search word forward")),
+	WordSearchRev: key.NewBinding(key.WithKeys("#"), key.WithHelp("#", "search word backward")),
 }
 
 var InsertKeys = insertKeyMap{

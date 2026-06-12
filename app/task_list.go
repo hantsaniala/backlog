@@ -77,10 +77,19 @@ type taskListModel struct {
 	// Bulk assign (set via visual mode then c)
 	bulkAssignMode bool
 
-	// Pending multi-key sequences (gg, zz, yk)
-	pendingG bool
-	pendingZ bool
-	pendingY bool
+	// Marks
+	marks     map[string]string // letter -> task ID
+
+	// Pending multi-key sequences (gg, zz, yk, zt, zb, m[a-z], '[a-z])
+	pendingG     bool
+	pendingZ     bool
+	pendingY     bool
+	pendingM     bool
+	pendingQuote bool
+
+	// Search repeat (n/N)
+	lastFilterText string
+	filterHistoryIdx int
 
 	// Sidebar reference (owned by app.Model, but we track cursor for updates)
 	sidebar     *sidebarState
@@ -101,6 +110,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		jumpHints:     newJumpHintState(),
 		visualSel:     newVisualSelection(),
 		sidebar:       &sidebarState{},
+		marks:         make(map[string]string),
 	}
 	m.rebuild()
 	if len(m.visibleRows) > 0 {
@@ -237,13 +247,14 @@ func (s *taskListModel) handleInlineFilterUpdate(msg tea.Msg) (tea.Model, tea.Cm
 		case "esc":
 			s.mode = modeTree
 			return s, nil
-		case "enter":
-			s.filterText = s.inlineInput.Value()
-			s.filterOn = s.filterText != ""
-			s.addFilterHistory(s.filterText)
-			s.mode = modeTree
-			s.rebuild()
-			return s, nil
+	case "enter":
+		s.filterText = s.inlineInput.Value()
+		s.filterOn = s.filterText != ""
+		s.lastFilterText = s.filterText
+		s.addFilterHistory(s.filterText)
+		s.mode = modeTree
+		s.rebuild()
+		return s, nil
 		}
 	}
 	var cmd tea.Cmd
@@ -251,6 +262,7 @@ func (s *taskListModel) handleInlineFilterUpdate(msg tea.Msg) (tea.Model, tea.Cm
 	// Live filter
 	s.filterText = s.inlineInput.Value()
 	s.filterOn = s.filterText != ""
+	s.lastFilterText = s.filterText
 	s.rebuild()
 	return s, cmd
 }
@@ -290,9 +302,23 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if s.pendingZ {
 		s.pendingZ = false
-		if msg.String() == "z" {
-			// zz — center cursor
+		ch := msg.String()
+		if ch == "z" {
 			s.centerCursor()
+			return s, nil
+		}
+		if ch == "t" && len(s.visibleRows) > 0 {
+			s.cursor = int(s.treeViewport.YOffset)
+			s.clampCursor()
+			return s, nil
+		}
+		if ch == "b" {
+			bottom := int(s.treeViewport.YOffset) + s.treeViewport.Height - 1
+			if bottom >= len(s.visibleRows) {
+				bottom = len(s.visibleRows) - 1
+			}
+			s.cursor = bottom
+			s.clampCursor()
 			return s, nil
 		}
 	}
@@ -304,6 +330,31 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				copyToClipboard(task.ID)
 				return s, notifyCmd(fmt.Sprintf("Copied %s", task.ID))
 			}
+		}
+	}
+	if s.pendingM {
+		s.pendingM = false
+		ch := msg.String()
+		if len(ch) == 1 && ch >= "a" && ch <= "z" && len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			s.marks[ch] = s.visibleRows[s.cursor].task.ID
+			return s, notifyCmd(fmt.Sprintf("Mark %s set on %s", ch, s.visibleRows[s.cursor].task.ID))
+		}
+	}
+	if s.pendingQuote {
+		s.pendingQuote = false
+		ch := msg.String()
+		if len(ch) == 1 && ch >= "a" && ch <= "z" {
+			if taskID, ok := s.marks[ch]; ok {
+				for i, r := range s.visibleRows {
+					if r.task.ID == taskID {
+						s.cursor = i
+						s.clampCursor()
+						return s, notifyCmd(fmt.Sprintf("Jumped to mark %s (%s)", ch, taskID))
+					}
+				}
+				return s, notifyCmd(fmt.Sprintf("Mark %s item %s not visible", ch, taskID))
+			}
+			return s, notifyCmd(fmt.Sprintf("No mark %s", ch))
 		}
 	}
 
@@ -397,6 +448,14 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
+	// Update lastFilterText when clearing filter in tree mode
+	case msg.String() == "C-l":
+		s.filterText = ""
+		s.filterOn = false
+		s.lastFilterText = ""
+		s.rebuild()
+		return s, nil
+
 	// Expand / collapse
 	case key.Matches(msg, NormalKeys.Left):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
@@ -458,6 +517,80 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Copy key (pending y)
 	case msg.String() == "y":
 		s.pendingY = true
+		return s, nil
+
+	// Mark set key (pending letter)
+	case msg.String() == "m":
+		s.pendingM = true
+		return s, nil
+
+	// Mark jump key (pending letter)
+	case msg.String() == "'":
+		s.pendingQuote = true
+		return s, nil
+
+	// Search next/prev
+	case key.Matches(msg, NormalKeys.SearchNext):
+		return s.handleSearchRepeat(1)
+
+	case key.Matches(msg, NormalKeys.SearchPrev):
+		return s.handleSearchRepeat(-1)
+
+	// Block motion — jump between epics
+	case key.Matches(msg, NormalKeys.BlockUp):
+		epicIdx := -1
+		for i := s.cursor - 1; i >= 0; i-- {
+			if s.visibleRows[i].task.Type == model.TypeEpic {
+				epicIdx = i
+				break
+			}
+		}
+		if epicIdx >= 0 {
+			s.cursor = epicIdx
+			s.clampCursor()
+		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.BlockDown):
+		epicIdx := -1
+		for i := s.cursor + 1; i < len(s.visibleRows); i++ {
+			if s.visibleRows[i].task.Type == model.TypeEpic {
+				epicIdx = i
+				break
+			}
+		}
+		if epicIdx >= 0 {
+			s.cursor = epicIdx
+			s.clampCursor()
+		}
+		return s, nil
+
+	// Word search — search for word under cursor
+	case key.Matches(msg, NormalKeys.WordSearch):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			word := s.visibleRows[s.cursor].task.ID
+			if word != "" {
+				s.filterText = word
+				s.filterOn = true
+				s.lastFilterText = word
+				s.rebuild()
+				return s, notifyCmd(fmt.Sprintf("Searching for %q", word))
+			}
+		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.WordSearchRev):
+		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+			word := s.visibleRows[s.cursor].task.ID
+			if word != "" {
+				s.filterText = word
+				s.filterOn = true
+				s.lastFilterText = word
+				s.rebuild()
+				s.cursor = len(s.visibleRows) - 1
+				return s, notifyCmd(fmt.Sprintf("Searching for %q (reverse)", word))
+			}
+		}
 		return s, nil
 
 	// Visual mode
@@ -640,6 +773,18 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s.detailView != nil && s.detailView.task != nil {
 			return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
 		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.SearchNext):
+		return s.handleSearchRepeat(1)
+
+	case key.Matches(msg, NormalKeys.SearchPrev):
+		return s.handleSearchRepeat(-1)
+
+	case key.Matches(msg, NormalKeys.BlockUp):
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.BlockDown):
 		return s, nil
 
 	case key.Matches(msg, NormalKeys.Up):
@@ -900,6 +1045,15 @@ func (s *taskListModel) renderTree() string {
 		// Jump hint overlay
 		line = 	s.jumpHints.hintOverlay(i, line)
 
+		// Mark indicator
+		for markLetter, markTaskID := range s.marks {
+			if markTaskID == r.task.ID {
+				markStyle := lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
+				line += " " + markStyle.Render(fmt.Sprintf("[%s]", markLetter))
+				break
+			}
+		}
+
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -915,18 +1069,73 @@ func (s *taskListModel) footerHint() string {
 		if s.detailView.state == detailPreview {
 			return " Esc:back"
 		}
-		if s.mode == modeStatusPopup {
+		if s.statusRunning {
 			return " ↑/↓:select  Enter:confirm  Esc:cancel"
 		}
-		return " j/k:scroll | e:status | o:open in editor | r:related | s:sprint | C-d/u:scroll | Esc:back"
+		return " j/k:scroll | e:status | o:open | r:related | C-d/u:scroll | Esc:back"
 	}
 	if s.mode == modeAssign {
 		return " Type assignee | Enter:confirm | Esc:cancel"
 	}
-	return " j/k:move | Enter:view | Space:toggle | e:status | r:related | v:multi | /:search | ::cmd | ?:help"
+	return " j/k:move | Enter:view | Space:toggle | e:status | r:related | {/}:epic | n/N:search | m[a-z]:mark | *:word | v:multi | /:search | ::cmd | ?:help"
 }
 
 // --- Tree building ---
+
+func (s *taskListModel) handleSearchRepeat(dir int) (tea.Model, tea.Cmd) {
+	if s.lastFilterText == "" {
+		return s, nil
+	}
+	s.filterText = s.lastFilterText
+	s.filterOn = true
+	s.rebuild()
+	if len(s.visibleRows) == 0 {
+		return s, notifyCmd(fmt.Sprintf("No matches for %q", s.lastFilterText))
+	}
+	if dir > 0 {
+		// Find the first match after current cursor
+		for i := s.cursor + 1; i < len(s.visibleRows); i++ {
+			if matchFilter(s.visibleRows[i].task, s.lastFilterText) {
+				s.cursor = i
+				s.clampCursor()
+				return s, nil
+			}
+		}
+		// Wrap to first match
+		for i := 0; i <= s.cursor; i++ {
+			if matchFilter(s.visibleRows[i].task, s.lastFilterText) {
+				s.cursor = i
+				s.clampCursor()
+				return s, notifyCmd("Search wrapped to top")
+			}
+		}
+	} else {
+		// Find the first match before current cursor
+		for i := s.cursor - 1; i >= 0; i-- {
+			if matchFilter(s.visibleRows[i].task, s.lastFilterText) {
+				s.cursor = i
+				s.clampCursor()
+				return s, nil
+			}
+		}
+		// Wrap to last match
+		for i := len(s.visibleRows) - 1; i >= s.cursor; i-- {
+			if matchFilter(s.visibleRows[i].task, s.lastFilterText) {
+				s.cursor = i
+				s.clampCursor()
+				return s, notifyCmd("Search wrapped to bottom")
+			}
+		}
+	}
+	return s, notifyCmd(fmt.Sprintf("No matches for %q", s.lastFilterText))
+}
+
+func matchFilter(task *model.Task, filter string) bool {
+	lower := strings.ToLower(filter)
+	return strings.Contains(strings.ToLower(task.ID), lower) ||
+		strings.Contains(strings.ToLower(task.Summary), lower) ||
+		strings.Contains(strings.ToLower(task.Assignee), lower)
+}
 
 func (s *taskListModel) clampCursor() {
 	if len(s.visibleRows) == 0 {

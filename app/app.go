@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -54,6 +56,10 @@ type Model struct {
 	// Notification
 	notification     string
 	notificationAge  int
+
+	// Editor integration
+	editorCmd    string
+	nvimMode     bool
 }
 
 func New(b *model.Backlog) *Model {
@@ -74,7 +80,21 @@ func New(b *model.Backlog) *Model {
 	m.screens[screenTaskList] = newScreenTaskList(b)
 	m.screens[screenSprintView] = newScreenSprintView(b)
 
+	// Detect if running inside Neovim terminal
+	if os.Getenv("NVIM") != "" || os.Getenv("NVIM_LISTEN_ADDRESS") != "" {
+		m.nvimMode = true
+		m.editorCmd = "nvim --remote-send"
+	}
+
 	return m
+}
+
+func (m *Model) SetEditor(cmd string) {
+	m.editorCmd = cmd
+	// Propagate to sub-screens
+	if tl, ok := m.screens[screenTaskList].(*taskListModel); ok {
+		tl.editorCmd = cmd
+	}
 }
 
 func (m *Model) Init() tea.Cmd {
@@ -200,6 +220,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case notificationMsg:
 		m.setNotification(msg.text)
+		return m, nil
+
+	case editorOpenMsg:
+		path := taskFilePath(msg.task, msg.root)
+		cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s &", msg.editor, path))
+		if err := cmd.Start(); err != nil {
+			m.setNotification(fmt.Sprintf("Failed to open editor: %v", err))
+		} else {
+			m.setNotification(fmt.Sprintf("Opened %s in editor", msg.task.ID))
+		}
 		return m, nil
 
 	case historyNavigateMsg:
