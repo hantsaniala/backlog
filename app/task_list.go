@@ -33,6 +33,8 @@ const (
 
 type taskListModel struct {
 	backlog    *model.Backlog
+	backlogRoot string
+	editorCmd   string
 	width      int
 	height     int
 	mode       viewMode
@@ -92,6 +94,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 
 	m := &taskListModel{
 		backlog:       b,
+		backlogRoot:   b.Current.Root,
 		expanded:      make(map[string]bool),
 		inlineInput:   ti,
 		filterHistory: make([]string, 0),
@@ -574,6 +577,18 @@ func (s *taskListModel) handleVisualKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, NormalKeys.Back):
+		if s.detailView != nil {
+			if s.detailView.state == detailPreview {
+				s.detailView.state = detailRelated
+				s.detailView.previewTask = nil
+				return s, nil
+			}
+			if s.detailView.state == detailRelated {
+				s.detailView.state = detailNormal
+				s.detailView.relatedItems = nil
+				return s, nil
+			}
+		}
 		s.mode = modeTree
 		s.detailView = nil
 		return s, nil
@@ -618,6 +633,12 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				s.detailView.previewTask = link.Task
 				s.detailView.state = detailPreview
 			}
+		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.OpenInEditor):
+		if s.detailView != nil && s.detailView.task != nil {
+			return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
 		}
 		return s, nil
 
@@ -897,7 +918,7 @@ func (s *taskListModel) footerHint() string {
 		if s.mode == modeStatusPopup {
 			return " ↑/↓:select  Enter:confirm  Esc:cancel"
 		}
-		return " j/k:scroll | e:status | r:related | s:sprint | C-d/u:scroll | Esc:back"
+		return " j/k:scroll | e:status | o:open in editor | r:related | s:sprint | C-d/u:scroll | Esc:back"
 	}
 	if s.mode == modeAssign {
 		return " Type assignee | Enter:confirm | Esc:cancel"
