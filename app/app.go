@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,13 +22,6 @@ const (
 	screenSprintView
 )
 
-type panelFocus int
-
-const (
-	panelMain  panelFocus = iota
-	panelSidebar
-)
-
 type Model struct {
 	backlog       *model.Backlog
 	currentScreen screen
@@ -37,37 +29,24 @@ type Model struct {
 	width         int
 	height        int
 	reloading     bool
-	tabNames      []string
 
-	// Navigation
-	inputMode     InputMode
-	navStack      *NavigationStack
-	forwardStack  *ForwardStack
-	ctrlWPending  bool
-	currentPanel  panelFocus
-	panelMaximized bool
-	savedPanels   []panelFocus
-	lastGTime     time.Time
+	inputMode InputMode
 
 	// Overlay models
-	palette    *paletteModel
-	helpModel  *helpModel
-	showHelp   bool
-	sidebar    *sidebarState
+	palette   *paletteModel
+	helpModel *helpModel
+	showHelp  bool
 
 	// Notification
-	notification     string
-	notificationAge  int
+	notification    string
+	notificationAge int
 
 	// Editor integration
-	editorCmd    string
-	nvimMode     bool
+	editorCmd string
+	nvimMode  bool
 
 	// Configuration
 	conf *config.Config
-
-	// Effective content width (minus sidebar when open)
-	effectiveWidth int
 }
 
 func New(b *model.Backlog, cfg *config.Config) *Model {
@@ -81,12 +60,7 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 		backlog:       b,
 		currentScreen: screenDashboard,
 		screens:       make(map[screen]tea.Model),
-		tabNames:      []string{"1 Dashboard", "2 Tasks", "3 Sprints"},
 		inputMode:     ModeNormal,
-		navStack:      NewNavigationStack(),
-		forwardStack:  NewForwardStack(),
-		savedPanels:   make([]panelFocus, 0),
-		sidebar:       newSidebarState(),
 		helpModel:     newHelpModel(),
 		conf:          cfg,
 	}
@@ -95,7 +69,6 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 	m.screens[screenTaskList] = newScreenTaskList(b)
 	m.screens[screenSprintView] = newScreenSprintView(b)
 
-	// Detect if running inside Neovim terminal
 	if os.Getenv("NVIM") != "" || os.Getenv("NVIM_LISTEN_ADDRESS") != "" {
 		m.nvimMode = true
 		m.editorCmd = "nvim --remote-send"
@@ -106,16 +79,13 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 
 func (m *Model) SetEditor(cmd string) {
 	m.editorCmd = cmd
-	// Propagate to sub-screens
 	if tl, ok := m.screens[screenTaskList].(*taskListModel); ok {
 		tl.editorCmd = cmd
 	}
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
-		watchBacklogDirectories(m.backlog),
-	)
+	return watchBacklogDirectories(m.backlog)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -125,27 +95,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.effectiveWidth = m.width
-		if m.sidebar.open {
-			sidebarW := m.width * 30 / 100
-			if sidebarW > 50 {
-				sidebarW = 50
-			}
-			m.effectiveWidth = m.width - sidebarW - 2
-			if m.effectiveWidth < 40 {
-				m.effectiveWidth = 40
-			}
-		}
 		if m.palette != nil {
 			m.palette.width = msg.Width
 			m.palette.height = msg.Height
 		}
-		// Send adjusted width to sub-screens
-		adj := msg
-		adj.Width = m.effectiveWidth
 		for _, s := range m.screens {
 			if u, ok := s.(tea.Model); ok {
-				u.Update(adj)
+				u.Update(msg)
 			}
 		}
 
@@ -154,13 +110,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// Handle Ctrl+w prefix state machine
-		if m.ctrlWPending {
-			m.ctrlWPending = false
-			return m.handleCtrlW(msg)
-		}
-
-		// Handle palette overlay first
 		if m.inputMode == ModeCommandPalette && m.palette != nil {
 			updated, cmd := m.palette.Update(msg)
 			m.palette = updated.(*paletteModel)
@@ -174,7 +123,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
-		// Help overlay toggle
 		if m.inputMode == ModeHelp {
 			if msg.String() == "esc" || msg.String() == "?" {
 				m.inputMode = ModeNormal
@@ -188,7 +136,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Global keys
 		switch {
 		case key.Matches(msg, NormalKeys.Quit):
 			return m, tea.Quit
@@ -197,40 +144,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputMode = ModeCommandPalette
 			return m, m.palette.Init()
 		case key.Matches(msg, NormalKeys.One):
-			m.navStack.Push(ViewState{Screen: m.currentScreen})
 			m.currentScreen = screenDashboard
-			m.inputMode = ModeNormal
 			return m, nil
 		case key.Matches(msg, NormalKeys.Two):
-			m.navStack.Push(ViewState{Screen: m.currentScreen})
 			m.currentScreen = screenTaskList
-			m.inputMode = ModeNormal
 			return m, nil
 		case key.Matches(msg, NormalKeys.Three):
-			m.navStack.Push(ViewState{Screen: m.currentScreen})
 			m.currentScreen = screenSprintView
-			m.inputMode = ModeNormal
-			return m, nil
-		case key.Matches(msg, NormalKeys.HistBack):
-			if prev, ok := m.navStack.Pop(); ok {
-				m.currentScreen = prev.Screen
-				return m, nil
-			}
-			return m, nil
-		case key.Matches(msg, NormalKeys.HistFwd):
-			// Re-push current and try next if available
-			return m, nil
-		case key.Matches(msg, NormalKeys.Preview):
-			m.sidebar.toggle()
-			return m, resendWindowSize(m.width, m.height)
-		case msg.String() == "ctrl+p" && m.sidebar.open:
-			m.sidebar.pin()
-			return m, resendWindowSize(m.width, m.height)
-		case key.Matches(msg, NormalKeys.PanelLeft):
-			// Send panel focus message to current screen
-			return m, nil
-		case msg.String() == "ctrl+w":
-			m.ctrlWPending = true
 			return m, nil
 		}
 
@@ -241,7 +161,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				u.Update(reloadMsg{})
 			}
 		}
-		// Auto-commit if configured
 		if m.conf != nil && m.conf.Git.AutoCommit && m.backlog != nil {
 			root := filepath.Dir(m.backlog.Current.Root)
 			go func() {
@@ -267,54 +186,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setNotification(fmt.Sprintf("Opened %s in editor", msg.task.ID))
 		}
 		return m, nil
-
-	case historyNavigateMsg:
-		// Pop to the selected history entry
-		items := m.navStack.Items()
-		if msg.index >= 0 && msg.index < len(items) {
-			target := items[msg.index]
-			// Pop all entries up to and including the target
-			for m.navStack.Size() > 0 {
-				top, _ := m.navStack.Pop()
-				if top.Screen == target.Screen && top.TaskID == target.TaskID {
-					break
-				}
-			}
-			m.currentScreen = target.Screen
-			m.inputMode = ModeNormal
-		}
-		return m, nil
 	}
 
-	// g-sequence navigation (g b/f/h/s — checked before screen routing)
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		if !m.lastGTime.IsZero() && time.Since(m.lastGTime) < 500*time.Millisecond {
-			m.lastGTime = time.Time{}
-			switch keyMsg.String() {
-			case "b":
-				m.handleGoBack()
-				return m, nil
-			case "f":
-				m.handleGoForward()
-				return m, nil
-			case "h":
-				return m.handleHistoryPopup()
-			case "s":
-				m.navStack.Push(ViewState{Screen: m.currentScreen})
-				m.currentScreen = screenSprintView
-				m.inputMode = ModeNormal
-				m.forwardStack.Clear()
-				return m, nil
-			}
-		}
-
-		// Track 'g' key for g-sequence timing
-		if keyMsg.String() == "g" {
-			m.lastGTime = time.Now()
-		}
-	}
-
-	// Route msg to current screen
 	if s, ok := m.screens[m.currentScreen]; ok {
 		updated, cmd := s.Update(msg)
 		m.screens[m.currentScreen] = updated
@@ -322,24 +195,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
-}
-
-func (m *Model) handleCtrlW(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "h":
-		m.currentPanel = panelMain
-	case "l":
-		m.currentPanel = panelSidebar
-	case "q":
-		if m.currentPanel == panelSidebar {
-			m.sidebar.open = false
-		}
-	case "o":
-		m.panelMaximized = true
-	case "r":
-		m.panelMaximized = false
-	}
-	return m, nil
 }
 
 func (m *Model) handlePaletteCommand(cmd string) {
@@ -387,32 +242,6 @@ func (m *Model) handlePaletteCommand(cmd string) {
 	}
 }
 
-func (m *Model) handleGoBack() {
-	if prev, ok := m.navStack.Pop(); ok {
-		m.forwardStack.Push(ViewState{Screen: m.currentScreen})
-		m.currentScreen = prev.Screen
-	}
-}
-
-func (m *Model) handleGoForward() {
-	if next, ok := m.forwardStack.Pop(); ok {
-		m.navStack.Push(ViewState{Screen: m.currentScreen})
-		m.currentScreen = next.Screen
-	}
-}
-
-func (m *Model) handleHistoryPopup() (tea.Model, tea.Cmd) {
-	if m.navStack.Size() == 0 {
-		m.setNotification("No navigation history")
-		return m, nil
-	}
-	m.palette = newPaletteModel(m.width, m.height)
-	m.palette.historyMode = true
-	m.palette.historyItems = m.navStack.Items()
-	m.inputMode = ModeCommandPalette
-	return m, m.palette.Init()
-}
-
 func (m *Model) setNotification(msg string) {
 	m.notification = msg
 	m.notificationAge = 0
@@ -425,48 +254,26 @@ func (m *Model) View() string {
 
 	var b strings.Builder
 
-	// Global header bar
 	b.WriteString(m.renderHeader())
 	b.WriteString("\n")
 
-	// Help overlay
 	if m.showHelp {
 		b.WriteString(m.helpModel.View(m.width, m.height))
 		return b.String()
 	}
 
-	// Command palette overlay
 	if m.inputMode == ModeCommandPalette && m.palette != nil {
 		b.WriteString(m.palette.View())
 		return b.String()
 	}
 
-	// Main content with optional sidebar
-	if m.sidebar.open {
-		sidebarW := m.width * 30 / 100
-		if sidebarW > 50 {
-			sidebarW = 50
-		}
-		mainContent := ""
-		if s, ok := m.screens[m.currentScreen]; ok {
-			mainContent = s.View()
-		}
-
-		sideContent := m.sidebar.render(sidebarW)
-		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, mainContent, sideContent))
-		b.WriteString("\n")
-	} else {
-		if s, ok := m.screens[m.currentScreen]; ok {
-			b.WriteString(s.View())
-		}
+	if s, ok := m.screens[m.currentScreen]; ok {
+		b.WriteString(s.View())
 	}
 
 	b.WriteString("\n")
-
-	// Global footer
 	b.WriteString(m.renderFooter())
 
-	// Notification
 	if m.notification != "" {
 		m.notificationAge++
 		if m.notificationAge < 30 {
@@ -485,40 +292,35 @@ func (m *Model) View() string {
 func (m *Model) renderHeader() string {
 	var leftParts, rightParts []string
 
-	// Mode indicator (vim-style colored block)
+	// Mode indicator
 	modeLabel := ModeStyle(m.inputMode).Render(fmt.Sprintf(" %s ", m.inputMode.String()))
 	leftParts = append(leftParts, modeLabel)
 
-	// Breadcrumb
-	bc := m.navStack.Breadcrumb(m.tabNames)
-	current := breadcrumbFromScreen(m.currentScreen)
-	if bc != "" {
-		leftParts = append(leftParts, breadcrumbStyle.Render(bc+navArrowStyle+current))
-	} else {
-		leftParts = append(leftParts, breadcrumbActiveStyle.Render(current))
+	// Tab bar
+	tabs := []string{
+		renderTab("1 Dashboard", m.currentScreen == screenDashboard),
+		renderTab("2 Tasks", m.currentScreen == screenTaskList),
+		renderTab("3 Sprints", m.currentScreen == screenSprintView),
 	}
+	leftParts = append(leftParts, strings.Join(tabs, ""))
 
-	// Right side: nvim indicator, git branch, time
+	// Right side
 	if m.nvimMode {
 		rightParts = append(rightParts, lipgloss.NewStyle().
 			Foreground(colorSuccess).
 			Padding(0, 1).
 			Render("[nvim]"))
 	}
-
-	// Git branch
 	if m.backlog != nil && m.backlog.Git != nil && m.backlog.Git.Branch != "" {
 		branchLabel := m.backlog.Git.Branch
 		if m.backlog.Git.Dirty {
 			branchLabel += " *"
 		}
-		branchPart := lipgloss.NewStyle().
+		rightParts = append(rightParts, lipgloss.NewStyle().
 			Foreground(colorSecondary).
 			Padding(0, 1).
-			Render(branchLabel)
-		rightParts = append(rightParts, branchPart)
+			Render(branchLabel))
 	}
-
 	rightParts = append(rightParts, timeStyle.Render(formatTime()))
 
 	left := strings.Join(leftParts, " ")
@@ -527,12 +329,18 @@ func (m *Model) renderHeader() string {
 	if avail < 0 {
 		avail = 0
 	}
-	fill := strings.Repeat(" ", avail)
 
 	return lipgloss.NewStyle().
 		Background(colorSurface).
 		Padding(0, 1).
-		Render(left + fill + right)
+		Render(left + strings.Repeat(" ", avail) + right)
+}
+
+func renderTab(label string, active bool) string {
+	if active {
+		return tabActiveStyle.Render(" " + label + " ")
+	}
+	return tabInactiveStyle.Render(" " + label + " ")
 }
 
 func (m *Model) renderFooter() string {
@@ -540,10 +348,9 @@ func (m *Model) renderFooter() string {
 		return lipgloss.NewStyle().
 			Foreground(colorTextDim).
 			Padding(0, 2).
-			Render(" ⠋ Loading...")
+			Render(" Loading...")
 	}
 
-	// Central hints
 	var hints string
 	if s, ok := m.screens[m.currentScreen]; ok {
 		type hintProvider interface{ footerHint() string }
@@ -555,7 +362,6 @@ func (m *Model) renderFooter() string {
 		hints = m.contextualHints()
 	}
 
-	// Position indicator (vim-style)
 	posStr := ""
 	if s, ok := m.screens[m.currentScreen]; ok {
 		type posProvider interface{ footerPos() string }
@@ -564,14 +370,11 @@ func (m *Model) renderFooter() string {
 		}
 	}
 
-	// Right-align position
 	footerW := m.width - len(hints) - 4
 	if footerW < 0 {
 		footerW = 0
 	}
-	posFmt := lipgloss.NewStyle().
-		Foreground(colorTextDim).
-		Render(posStr)
+	posFmt := lipgloss.NewStyle().Foreground(colorTextDim).Render(posStr)
 
 	return lipgloss.NewStyle().
 		Foreground(colorTextDim).
@@ -579,26 +382,19 @@ func (m *Model) renderFooter() string {
 		Render(hints + strings.Repeat(" ", footerW) + posFmt)
 }
 
-func resendWindowSize(w, h int) tea.Cmd {
-	return func() tea.Msg {
-		return tea.WindowSizeMsg{Width: w, Height: h}
-	}
-}
-
 func (m *Model) contextualHints() string {
 	switch m.inputMode {
 	case ModeNormal:
-		return fmt.Sprintf("%s | j/k:move []:page Enter:drill /:search f:jump v:select ::cmd ?:help q:quit",
-			m.tabNames[m.currentScreen])
+		return " j/k:move | Enter:open | e:status | v:select | /:filter | ::cmd | ?:help | q:quit"
 	case ModeInsert:
-		return "Type filter | Esc:cancel Tab:next field Enter:confirm"
+		return " Type filter | Esc:cancel | Enter:confirm"
 	case ModeVisual:
-		return "j/k:extend Space:toggle a:all x:action Esc:cancel"
+		return " j/k:extend | Space:toggle | a:all | x:action | Esc:cancel"
 	case ModeCommandPalette:
-		return "Type command | Enter:execute Esc:cancel"
+		return " Type command | Enter:execute | Esc:cancel"
 	case ModeHelp:
-		return "Press ? or Esc to close"
+		return " Press ? or Esc to close"
 	default:
-		return m.tabNames[m.currentScreen] + " | ? help | q quit"
+		return " ?:help | q:quit"
 	}
 }

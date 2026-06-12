@@ -29,11 +29,6 @@ var (
 	colorJumpHintFg  = lipgloss.Color("#FFD700")
 	colorOverlayBg   = lipgloss.Color("#1E1E2E")
 
-	footerStyle = lipgloss.NewStyle().
-			Height(1).
-			Foreground(colorTextDim).
-			PaddingLeft(1)
-
 	headerStyle = lipgloss.NewStyle().
 			Foreground(colorTextBright).
 			Bold(true).
@@ -43,12 +38,12 @@ var (
 			Foreground(colorTextBright).
 			Background(colorPrimary).
 			Bold(true).
-			Padding(0, 2)
+			Padding(0, 1)
 
 	tabInactiveStyle = lipgloss.NewStyle().
 				Foreground(colorTextDim).
 				Background(colorSurface).
-				Padding(0, 2)
+				Padding(0, 1)
 
 	statusColors = map[string]lipgloss.Color{
 		"todo":        colorInfo,
@@ -60,12 +55,12 @@ var (
 	}
 
 	statusGlyph = map[string]string{
-		"todo":        "◌",
-		"in-progress": "◎",
-		"review":      "◐",
-		"on-hold":     "◷",
-		"done":        "●",
-		"cancelled":   "⊗",
+		"todo":        "[ ]",
+		"in-progress": "[~]",
+		"review":      "[?]",
+		"on-hold":     "[ ]",
+		"done":        "[x]",
+		"cancelled":   "[-]",
 	}
 
 	popupStyle = lipgloss.NewStyle().
@@ -74,41 +69,30 @@ var (
 			Padding(1, 2).
 			Background(colorSurface)
 
-	overlayStyle = lipgloss.NewStyle().
-			Background(colorBg)
-
 	focusedRowStyle = lipgloss.NewStyle().
 			Background(colorSurfaceAlt)
 
 	leftBorderBar = lipgloss.NewStyle().
 			Foreground(colorPrimary).
-			Render("▎")
-
-	// ---- NEW GLOBAL NAV STYLES ----
-
-	headerBarStyle = lipgloss.NewStyle().
-			Background(colorSurface).
-			Foreground(colorTextBright).
-			Padding(0, 1).
-			Width(160)
+			Render(">")
 
 	modeNormalStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2D2D44")).
-				Foreground(colorSuccess).
-				Bold(true).
-				Padding(0, 2)
+			Background(lipgloss.Color("#2D2D44")).
+			Foreground(colorSuccess).
+			Bold(true).
+			Padding(0, 2)
 
 	modeInsertStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2D2D44")).
-				Foreground(colorWarning).
-				Bold(true).
-				Padding(0, 2)
+			Background(lipgloss.Color("#2D2D44")).
+			Foreground(colorWarning).
+			Bold(true).
+			Padding(0, 2)
 
 	modeVisualStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#2D2D44")).
-				Foreground(colorAccent).
-				Bold(true).
-				Padding(0, 2)
+			Background(lipgloss.Color("#2D2D44")).
+			Foreground(colorAccent).
+			Bold(true).
+			Padding(0, 2)
 
 	modeHelpStyle = lipgloss.NewStyle().
 			Background(lipgloss.Color("#2D2D44")).
@@ -125,26 +109,15 @@ var (
 				Bold(true).
 				Padding(0, 1)
 
-	navArrowStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Render(" › ")
-
-	connectionDotStyle = lipgloss.NewStyle().
-				Foreground(colorSuccess)
-
 	timeStyle = lipgloss.NewStyle().
 			Foreground(colorTextDim).
 			Padding(0, 2)
-
-	// ---- JUMP HINTS ----
 
 	jumpHintStyle = lipgloss.NewStyle().
 			Background(colorJumpHintBg).
 			Foreground(colorJumpHintFg).
 			Bold(true).
 			Padding(0, 1)
-
-	// ---- COMMAND PALETTE ----
 
 	paletteStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -172,14 +145,6 @@ var (
 				Foreground(colorTextDim).
 				Padding(0, 1)
 
-	// ---- HELP OVERLAY ----
-
-	helpOverlayStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorInfo).
-				Padding(1, 2).
-				Background(colorOverlayBg)
-
 	helpCategoryStyle = lipgloss.NewStyle().
 				Foreground(colorTextBright).
 				Bold(true).
@@ -194,51 +159,13 @@ var (
 			Foreground(colorText).
 			Padding(0, 1)
 
-	// ---- PREVIEW SIDEBAR ----
-
-	sidebarStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(colorBorder).
-			Padding(0, 1).
-			Background(colorSurface)
-
-	sidebarHeaderStyle = lipgloss.NewStyle().
-				Foreground(colorTextBright).
-				Bold(true).
-				Padding(0, 1)
-
-	sidebarFieldStyle = lipgloss.NewStyle().
-				Foreground(colorTextDim).
-				Padding(0, 1)
-
-	sidebarValueStyle = lipgloss.NewStyle().
-				Foreground(colorText).
-				Padding(0, 1)
-
-	sidebarPinnedStyle = lipgloss.NewStyle().
-				Foreground(colorWarning).
-				Padding(0, 1)
-
-	// ---- SCROLL INDICATORS ----
-
 	scrollUpStyle = lipgloss.NewStyle().
 			Foreground(colorTextDim).
-			Render(" ▲")
+			Render(" ^")
 
 	scrollDownStyle = lipgloss.NewStyle().
 			Foreground(colorTextDim).
-			Render(" ▼")
-
-	scrollPercentStyle = lipgloss.NewStyle().
-				Foreground(colorTextDim).
-				Padding(0, 1)
-
-	// ---- PANEL FOCUS ----
-
-	focusBorderActive = lipgloss.Color("#06B6D4")
-	focusBorderInactive = lipgloss.Color("#3D3D5C")
-
-	// ---- BULK ACTION NOTIFICATION ----
+			Render(" v")
 
 	notificationStyle = lipgloss.NewStyle().
 				Foreground(colorWarning).
@@ -249,7 +176,6 @@ var (
 			Foreground(colorTextDim).
 			Padding(0, 2)
 
-	// Per-page border colors
 	colorPageBacklog = lipgloss.Color("#00ffff")
 	colorPageDetail  = lipgloss.Color("#00ff88")
 	colorPageSprint  = lipgloss.Color("#ff44ff")

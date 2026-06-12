@@ -32,67 +32,47 @@ const (
 )
 
 type taskListModel struct {
-	backlog    *model.Backlog
+	backlog     *model.Backlog
 	backlogRoot string
 	editorCmd   string
-	width      int
-	height     int
-	mode       viewMode
+	width       int
+	height      int
+	mode        viewMode
 
-	// Tree
 	rows        []flatRow
 	visibleRows []flatRow
 	cursor      int
 	expanded    map[string]bool
 
-	// Tree filter (persistent)
 	filterText string
 	filterOn   bool
 
-	// Inline filter (temporary, / key)
 	inlineInput  textinput.Model
-	filterHistory []string // last 5
+	filterHistory []string
 
-	// Detail
 	detailView *detailView
 
-	// Search modal
 	searchModal   *searchModalModel
 	searchRunning bool
 
-	// Status popup
 	statusPopup   *statusPopupModel
 	statusRunning bool
 
-	// Viewport for tree scrolling
 	treeViewport viewport.Model
 	treeReady    bool
 
-	// Jump hints
 	jumpHints *jumpHintState
-
-	// Visual mode
 	visualSel *visualSelection
-
-	// Bulk assign (set via visual mode then c)
 	bulkAssignMode bool
 
-	// Marks
-	marks     map[string]string // letter -> task ID
-
-	// Pending multi-key sequences (gg, zz, yk, zt, zb, m[a-z], '[a-z])
 	pendingG     bool
 	pendingZ     bool
 	pendingY     bool
 	pendingM     bool
 	pendingQuote bool
 
-	// Search repeat (n/N)
+	marks          map[string]string
 	lastFilterText string
-	filterHistoryIdx int
-
-	// Sidebar reference (owned by app.Model, but we track cursor for updates)
-	sidebar     *sidebarState
 }
 
 func newScreenTaskList(b *model.Backlog) *taskListModel {
@@ -101,7 +81,7 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 	ti.CharLimit = 100
 	ti.Width = 50
 
-	m := &taskListModel{
+		m := &taskListModel{
 		backlog:       b,
 		backlogRoot:   b.Current.Root,
 		expanded:      make(map[string]bool),
@@ -109,7 +89,6 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		filterHistory: make([]string, 0),
 		jumpHints:     newJumpHintState(),
 		visualSel:     newVisualSelection(),
-		sidebar:       &sidebarState{},
 		marks:         make(map[string]string),
 	}
 	m.rebuild()
@@ -618,7 +597,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	// Related items from list
-	case key.Matches(msg, NormalKeys.Reload):
+	case key.Matches(msg, NormalKeys.Related):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			task := s.visibleRows[s.cursor].task
 			dv := newDetailView(s.backlog, task, s.width, s.height)
@@ -751,7 +730,7 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.statusRunning = true
 		return s, nil
 
-	case key.Matches(msg, NormalKeys.Reload):
+	case key.Matches(msg, NormalKeys.Related):
 		if s.detailView != nil {
 			s.detailView.resolveLinks()
 			s.detailView.state = detailRelated
@@ -868,11 +847,6 @@ func (s *taskListModel) centerCursor() {
 // --- View ---
 
 func (s *taskListModel) View() string {
-	// Update sidebar with current cursor item
-	if s.sidebar != nil && len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
-		s.sidebar.updateTask(s.visibleRows[s.cursor].task)
-	}
-
 	switch s.mode {
 	case modeDetail:
 		if s.detailView != nil {
@@ -1071,20 +1045,20 @@ func (s *taskListModel) footerPos() string {
 func (s *taskListModel) footerHint() string {
 	if s.mode == modeDetail && s.detailView != nil {
 		if s.detailView.state == detailRelated {
-			return " j/k:navigate  Enter:preview  Esc:back"
+			return " j/k:navigate | Enter:preview | Esc:back"
 		}
 		if s.detailView.state == detailPreview {
 			return " Esc:back"
 		}
 		if s.statusRunning {
-			return " ↑/↓:select  Enter:confirm  Esc:cancel"
+			return " j/k:select | Enter:confirm | Esc:cancel"
 		}
-		return " j/k:scroll | e:status | o:open | r:related | C-d/u:scroll | Esc:back"
+		return " j/k:scroll | e:status | o:open | r:links | C-d/u:scroll | Esc:back"
 	}
 	if s.mode == modeAssign {
 		return " Type assignee | Enter:confirm | Esc:cancel"
 	}
-	return " j/k:move | Enter:view | Space:toggle | e:status | r:related | {/}:epic | n/N:search | m[a-z]:mark | *:word | v:multi | /:search | ::cmd | ?:help"
+	return " j/k:move | Enter:view | Space:toggle | e:status | /:filter | ::cmd | ?:help"
 }
 
 // --- Tree building ---

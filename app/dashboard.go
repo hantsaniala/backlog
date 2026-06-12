@@ -231,7 +231,7 @@ func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.Projec
 }
 
 func (s *dashboardModel) footerHint() string {
-	return " 2:backlog | 3:sprints | ::cmd | q:quit"
+	return " 2:tasks | 3:sprints | ::cmd | q:quit"
 }
 
 func (s *dashboardModel) footerPos() string { return "" }

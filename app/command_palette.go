@@ -44,10 +44,6 @@ type paletteExecuteMsg struct {
 	command string
 }
 
-type historyNavigateMsg struct {
-	index int
-}
-
 type paletteModel struct {
 	input    textinput.Model
 	cursor   int
@@ -56,10 +52,6 @@ type paletteModel struct {
 	width    int
 	height   int
 	allCmds  []paletteCommand
-
-	// History mode (g h)
-	historyMode   bool
-	historyItems  []ViewState
 }
 
 func newPaletteModel(width, height int) *paletteModel {
@@ -89,12 +81,6 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc", "ctrl+c":
 			return m, func() tea.Msg { return nil }
 		case "enter":
-			if m.historyMode {
-				if m.cursor >= 0 && m.cursor < len(m.historyItems) {
-					return m, func() tea.Msg { return historyNavigateMsg{index: m.cursor} }
-				}
-				return m, nil
-			}
 			if len(m.results) > 0 && m.cursor >= 0 && m.cursor < len(m.results) {
 				cmd := m.results[m.cursor].label
 				m.addRecent(cmd)
@@ -122,52 +108,6 @@ func (m *paletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *paletteModel) filter() {
 	query := strings.ToLower(m.input.Value())
-
-	if m.historyMode {
-		// In history mode, filter by screen name or task ID
-		type histItem struct {
-			label string
-			idx   int
-		}
-		var filtered []histItem
-		for i, vs := range m.historyItems {
-			label := breadcrumbFromScreen(vs.Screen)
-			if vs.TaskID != "" {
-				label = vs.TaskID
-			}
-			if query == "" || strings.Contains(strings.ToLower(label), query) {
-				filtered = append(filtered, histItem{label: label, idx: i})
-			}
-		}
-		// Fake paletteCommand results for View
-		var cmds []paletteCommand
-		for _, fi := range filtered {
-			label := fmt.Sprintf("(history entry %d)", fi.idx+1)
-			if m.historyItems[fi.idx].Screen == screenDashboard {
-				label = "Dashboard"
-			} else if m.historyItems[fi.idx].Screen == screenTaskList {
-				label = "Backlog"
-			} else if m.historyItems[fi.idx].Screen == screenSprintView {
-				label = "Sprints"
-			}
-			if m.historyItems[fi.idx].TaskID != "" {
-				label += " - " + m.historyItems[fi.idx].TaskID
-			}
-			if m.historyItems[fi.idx].FilterText != "" {
-				label += " [" + m.historyItems[fi.idx].FilterText + "]"
-			}
-			cmds = append(cmds, paletteCommand{label: label, description: "jump to this view"})
-		}
-		// Assign cursor from filtered items back to original index
-		m.results = cmds
-		if m.cursor >= len(m.results) {
-			m.cursor = len(m.results) - 1
-		}
-		if m.cursor < 0 {
-			m.cursor = 0
-		}
-		return
-	}
 
 	if query == "" {
 		m.results = m.allCmds
@@ -230,13 +170,8 @@ func (m *paletteModel) View() string {
 
 	var b strings.Builder
 
-	if m.historyMode {
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(" Navigation History"))
-		b.WriteString(fmt.Sprintf("  %d entries", len(m.historyItems)))
-	} else {
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(" Command Palette"))
-		b.WriteString(fmt.Sprintf("  %d commands", len(m.results)))
-	}
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(" Command Palette"))
+	b.WriteString(fmt.Sprintf("  %d commands", len(m.results)))
 	b.WriteString("\n\n")
 
 	// Input
@@ -244,8 +179,8 @@ func (m *paletteModel) View() string {
 	b.WriteString(m.input.View())
 	b.WriteString("\n\n")
 
-	// Recent commands (only in normal mode)
-	if !m.historyMode && len(m.recent) > 0 && m.input.Value() == "" {
+	// Recent commands
+	if len(m.recent) > 0 && m.input.Value() == "" {
 		b.WriteString(paletteRecentStyle.Render(" Recent"))
 		b.WriteString("\n")
 		for _, r := range m.recent {
@@ -276,11 +211,7 @@ func (m *paletteModel) View() string {
 	}
 
 	b.WriteString("\n")
-	if m.historyMode {
-		b.WriteString(paletteDescStyle.Render(" ↓↑ navigate | Enter jump | Esc cancel"))
-	} else {
-		b.WriteString(paletteDescStyle.Render(" ↓↑ navigate | Enter execute | Esc cancel"))
-	}
+	b.WriteString(paletteDescStyle.Render(" j/k navigate | Enter execute | Esc cancel"))
 
 	content := lipgloss.NewStyle().
 		Width(modalW).

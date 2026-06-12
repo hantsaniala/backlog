@@ -1,9 +1,6 @@
 package app
 
-import (
-	"strings"
-	"time"
-)
+import "time"
 
 type InputMode int
 
@@ -29,111 +26,6 @@ func (m InputMode) String() string {
 		return "CMD"
 	default:
 		return "NORMAL"
-	}
-}
-
-type ViewState struct {
-	Screen     screen
-	TaskID     string
-	ScrollPos  int
-	FilterText string
-}
-
-type NavigationStack struct {
-	stack []ViewState
-}
-
-func NewNavigationStack() *NavigationStack {
-	return &NavigationStack{stack: make([]ViewState, 0)}
-}
-
-func (ns *NavigationStack) Push(v ViewState) {
-	if len(ns.stack) >= 50 {
-		ns.stack = ns.stack[1:]
-	}
-	ns.stack = append(ns.stack, v)
-}
-
-func (ns *NavigationStack) Pop() (ViewState, bool) {
-	if len(ns.stack) == 0 {
-		return ViewState{}, false
-	}
-	v := ns.stack[len(ns.stack)-1]
-	ns.stack = ns.stack[:len(ns.stack)-1]
-	return v, true
-}
-
-// ForwardStack stores pages for forward navigation after g f.
-type ForwardStack struct {
-	stack []ViewState
-}
-
-func NewForwardStack() *ForwardStack {
-	return &ForwardStack{stack: make([]ViewState, 0)}
-}
-
-func (fs *ForwardStack) Push(v ViewState) {
-	if len(fs.stack) >= 50 {
-		fs.stack = fs.stack[1:]
-	}
-	fs.stack = append(fs.stack, v)
-}
-
-func (fs *ForwardStack) Pop() (ViewState, bool) {
-	if len(fs.stack) == 0 {
-		return ViewState{}, false
-	}
-	v := fs.stack[len(fs.stack)-1]
-	fs.stack = fs.stack[:len(fs.stack)-1]
-	return v, true
-}
-
-func (fs *ForwardStack) Clear() {
-	fs.stack = fs.stack[:0]
-}
-
-func (ns *NavigationStack) Peek() (ViewState, bool) {
-	if len(ns.stack) == 0 {
-		return ViewState{}, false
-	}
-	return ns.stack[len(ns.stack)-1], true
-}
-
-func (ns *NavigationStack) Size() int {
-	return len(ns.stack)
-}
-
-func (ns *NavigationStack) Items() []ViewState {
-	out := make([]ViewState, len(ns.stack))
-	copy(out, ns.stack)
-	return out
-}
-
-func (ns *NavigationStack) Breadcrumb(screenNames []string) string {
-	if len(ns.stack) == 0 {
-		return ""
-	}
-	var parts []string
-	for _, v := range ns.stack {
-		label := screenNames[v.Screen]
-		if v.TaskID != "" {
-			label = v.TaskID
-		}
-		parts = append(parts, label)
-	}
-	return strings.Join(parts, " / ")
-}
-
-func breadcrumbFromScreen(s screen) string {
-	switch s {
-	case screenDashboard:
-		return "Dashboard"
-	case screenTaskList:
-		return "Backlog"
-	case screenSprintView:
-		return "Sprints"
-	default:
-		return "Unknown"
 	}
 }
 

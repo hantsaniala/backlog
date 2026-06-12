@@ -41,7 +41,7 @@ type sprintViewModel struct {
 }
 
 func (s *sprintViewModel) footerHint() string {
-	return " h/l:move column | j/k:move card | >:to sprint | <:to backlog | s:status | /:search"
+	return " h/l:move | j/k:nav | >:to sprint | <:to backlog | e:status"
 }
 
 func (s *sprintViewModel) footerPos() string {
@@ -78,7 +78,7 @@ func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, NormalKeys.Quit):
 		return s, tea.Quit
-	case key.Matches(msg, NormalKeys.Tab), key.Matches(msg, NormalKeys.PrevTab):
+	case msg.String() == "tab":
 		if s.focus == paneLeft {
 			s.focus = paneRight
 		} else {
@@ -150,14 +150,14 @@ func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return s, nil
-	case key.Matches(msg, NormalKeys.MoveRight):
+	case msg.String() == ">":
 		if s.focus == paneLeft && s.leftCursor >= 0 && s.leftCursor < len(s.leftItems) {
 			task := s.leftItems[s.leftCursor]
 			task.Sprint = s.currentSprintName()
 			s.refresh()
 		}
 		return s, nil
-	case key.Matches(msg, NormalKeys.MoveLeft):
+	case msg.String() == "<":
 		if s.focus == paneRight && s.rightCursor >= 0 && s.rightCursor < len(s.rightItems) {
 			task := s.rightItems[s.rightCursor]
 			task.Sprint = ""

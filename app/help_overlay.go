@@ -7,11 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type helpCategory struct {
-	name  string
-	items []helpItem
-}
-
 type helpItem struct {
 	key         string
 	description string
@@ -23,77 +18,34 @@ func newHelpModel() *helpModel {
 
 type helpModel struct{}
 
-func (h *helpModel) categories() []helpCategory {
-	return []helpCategory{
+func (h *helpModel) categories() [][]helpItem {
+	return [][]helpItem{
 		{
-			name: "Global",
-			items: []helpItem{
-				{key: "q / C-c", description: "Quit application"},
-				{key: "?", description: "Toggle help overlay"},
-				{key: ":", description: "Open command palette"},
-				{key: "/", description: "Search / filter"},
-				{key: "r", description: "Related items"},
-			},
+			{key: "j/k", description: "Move up/down"},
+			{key: "h/l", description: "Collapse/expand"},
+			{key: "Enter", description: "Open / confirm"},
+			{key: "Esc", description: "Back / cancel"},
+			{key: "Space", description: "Toggle status"},
+			{key: "q", description: "Quit"},
 		},
 		{
-			name: "Navigation",
-			items: []helpItem{
-				{key: "h/j/k/l", description: "Move left/down/up/right"},
-				{key: "←/↓/↑/→", description: "Arrow keys (same)"},
-				{key: "gg / G", description: "Jump to top / bottom"},
-				{key: "{ / }", description: "Previous / next epic"},
-				{key: "C-d / C-u", description: "Half page down/up"},
-				{key: "C-f / C-b", description: "Full page down/up"},
-				{key: "[ / ]", description: "Previous/next page"},
-				{key: "zz / zt / zb", description: "Center / top / bottom cursor"},
-				{key: "f", description: "Jump hints (EasyMotion)"},
-				{key: "Tab / S-Tab", description: "Next/prev panel"},
-			},
+			{key: "1/2/3", description: "Switch screens"},
+			{key: "/", description: "Filter tasks"},
+			{key: ":", description: "Command palette"},
+			{key: "e", description: "Cycle status"},
+			{key: "o", description: "Open in editor"},
+			{key: "v", description: "Visual select"},
+			{key: "f", description: "Jump hints"},
 		},
 		{
-			name: "Actions",
-			items: []helpItem{
-				{key: "Enter", description: "Open detail / confirm"},
-				{key: "Esc / Bksp", description: "Back / cancel"},
-				{key: "Space", description: "Expand/collapse / toggle"},
-				{key: "e / s", description: "Cycle status"},
-				{key: "o", description: "Open task in editor"},
-				{key: "> / <", description: "Move to/from sprint"},
-				{key: "v", description: "Visual mode (multi-select)"},
-			},
-		},
-		{
-			name: "Search & Marks",
-			items: []helpItem{
-				{key: "/", description: "Filter / search tasks"},
-				{key: "n / N", description: "Next / previous match"},
-				{key: "* / #", description: "Search word forward / back"},
-				{key: "m[a-z]", description: "Set mark on current item"},
-				{key: "'[a-z]", description: "Jump to mark"},
-				{key: "C-l", description: "Clear filter"},
-			},
-		},
-		{
-			name: "Panel Management",
-			items: []helpItem{
-				{key: "C-w h", description: "Focus panel left"},
-				{key: "C-w j", description: "Focus panel down"},
-				{key: "C-w k", description: "Focus panel up"},
-				{key: "C-w l", description: "Focus panel right"},
-				{key: "C-w q", description: "Close panel"},
-				{key: "C-w o", description: "Maximize panel"},
-				{key: "C-w r", description: "Restore panel layout"},
-			},
-		},
-		{
-			name: "Screens & History",
-			items: []helpItem{
-				{key: "1", description: "Dashboard"},
-				{key: "2", description: "Task list / Backlog"},
-				{key: "3", description: "Sprint view"},
-				{key: "C-p", description: "Toggle preview sidebar"},
-				{key: "M-← / M-→", description: "History back/forward"},
-			},
+			{key: "gg / G", description: "Top / bottom"},
+			{key: "C-d / C-u", description: "Half page"},
+			{key: "C-f / C-b", description: "Full page"},
+			{key: "zz/zt/zb", description: "Center/top/bottom"},
+			{key: "n / N", description: "Next/prev match"},
+			{key: "{ / }", description: "Prev/next epic"},
+			{key: "m / '", description: "Set / jump mark"},
+			{key: "* / #", description: "Search word"},
 		},
 	}
 }
@@ -104,27 +56,18 @@ func (h *helpModel) View(width, height int) string {
 	b.WriteString(helpCategoryStyle.Render(" Keyboard Shortcuts"))
 	b.WriteString("\n\n")
 
-	cols := width / 30
-	if cols < 2 {
-		cols = 2
-	}
-	if cols > 3 {
-		cols = 3
-	}
+	cols := 3
 
 	var allLines []string
 	for _, cat := range h.categories() {
 		allLines = append(allLines, "")
-		allLines = append(allLines, fmt.Sprintf("  %s", cat.name))
-		for _, item := range cat.items {
-			allLines = append(allLines, fmt.Sprintf("    %s  %s",
+		for _, item := range cat {
+			allLines = append(allLines, fmt.Sprintf("  %s  %s",
 				helpKeyStyle.Render(item.key),
 				helpDescStyle.Render(item.description)))
 		}
-		allLines = append(allLines, "")
 	}
 
-	// Split into columns
 	colH := (len(allLines) + cols - 1) / cols
 	for i := 0; i < colH; i++ {
 		for c := 0; c < cols; c++ {
