@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/hantsaniala/backlog/config"
 )
 
 var (
@@ -406,4 +407,56 @@ func ModeStyle(mode InputMode) lipgloss.Style {
 	default:
 		return modeNormalStyle
 	}
+}
+
+// ApplyTheme overrides global color variables with values from config.
+func ApplyTheme(t *config.ThemeConfig) {
+	if t == nil {
+		return
+	}
+	if t.Primary != "" {
+		colorPrimary = lipgloss.Color(t.Primary)
+	}
+	if t.Secondary != "" {
+		colorSecondary = lipgloss.Color(t.Secondary)
+	}
+	if t.Success != "" {
+		colorSuccess = lipgloss.Color(t.Success)
+	}
+	if t.Warning != "" {
+		colorWarning = lipgloss.Color(t.Warning)
+	}
+	if t.Error != "" {
+		colorError = lipgloss.Color(t.Error)
+	}
+	if t.Info != "" {
+		colorInfo = lipgloss.Color(t.Info)
+	}
+	if t.Accent != "" {
+		colorAccent = lipgloss.Color(t.Accent)
+	}
+	if t.Background != "" {
+		colorBg = lipgloss.Color(t.Background)
+	}
+	if t.Surface != "" {
+		colorSurface = lipgloss.Color(t.Surface)
+		colorSurfaceAlt = lipgloss.Color(t.Surface)
+	}
+	if t.Text != "" {
+		colorText = lipgloss.Color(t.Text)
+	}
+	if t.TextDim != "" {
+		colorTextDim = lipgloss.Color(t.TextDim)
+	}
+	if t.TextBright != "" {
+		colorTextBright = lipgloss.Color(t.TextBright)
+	}
+	if t.Border != "" {
+		colorBorder = lipgloss.Color(t.Border)
+	}
+}
+
+// Conf returns the app config, or nil if not set.
+func (m *Model) Conf() *config.Config {
+	return m.conf
 }

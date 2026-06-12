@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/hantsaniala/backlog/app"
+	"github.com/hantsaniala/backlog/config"
 	"github.com/hantsaniala/backlog/model"
 	"github.com/hantsaniala/backlog/scaffold"
 )
@@ -57,7 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	appModel := app.New(b)
+	cfg := config.Load()
+	if cfg.Editor.Command != "" {
+		editorCmd = cfg.Editor.Command
+	}
+
+	appModel := app.New(b, cfg)
 	appModel.SetEditor(editorCmd)
 
 	p := tea.NewProgram(

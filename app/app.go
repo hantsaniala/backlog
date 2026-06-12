@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/hantsaniala/backlog/config"
 	"github.com/hantsaniala/backlog/model"
 )
 
@@ -60,9 +61,18 @@ type Model struct {
 	// Editor integration
 	editorCmd    string
 	nvimMode     bool
+
+	// Configuration
+	conf *config.Config
 }
 
-func New(b *model.Backlog) *Model {
+func New(b *model.Backlog, cfg *config.Config) *Model {
+	if cfg == nil {
+		cfg = config.Default()
+	}
+
+	ApplyTheme(&cfg.Theme)
+
 	m := &Model{
 		backlog:       b,
 		currentScreen: screenDashboard,
@@ -74,6 +84,7 @@ func New(b *model.Backlog) *Model {
 		savedPanels:   make([]panelFocus, 0),
 		sidebar:       newSidebarState(),
 		helpModel:     newHelpModel(),
+		conf:          cfg,
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
