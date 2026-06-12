@@ -35,6 +35,9 @@ var paletteCommands = []paletteCommand{
 	{label: "focus dashboard", description: "Switch to dashboard view"},
 	{label: "focus backlog", description: "Switch to backlog view"},
 	{label: "focus sprints", description: "Switch to sprint view"},
+	{label: "git commit", description: "Commit .backlog/ changes", aliases: []string{"gc"}},
+	{label: "git push", description: "Push commits to remote", aliases: []string{"gp"}},
+	{label: "git log", description: "Show recent git log", aliases: []string{"gl"}},
 }
 
 type paletteExecuteMsg struct {

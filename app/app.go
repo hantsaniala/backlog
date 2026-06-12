@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -223,6 +224,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				u.Update(reloadMsg{})
 			}
 		}
+		// Auto-commit if configured
+		if m.conf != nil && m.conf.Git.AutoCommit && m.backlog != nil {
+			root := filepath.Dir(m.backlog.Current.Root)
+			go func() {
+				model.GitCommit(root, m.conf.Git.CommitPrefix)
+			}()
+		}
 		return m, tea.Batch(watchBacklogDirectories(m.backlog))
 
 	case reloadErrorMsg:
@@ -326,6 +334,39 @@ func (m *Model) handlePaletteCommand(cmd string) {
 		m.currentScreen = screenTaskList
 	case cmd == "focus sprints":
 		m.currentScreen = screenSprintView
+	case cmd == "git commit":
+		if m.backlog != nil {
+			root := filepath.Dir(m.backlog.Current.Root)
+			prefix := "feat(backlog):"
+			if m.conf != nil {
+				prefix = m.conf.Git.CommitPrefix
+			}
+			if err := model.GitCommit(root, prefix); err != nil {
+				m.setNotification("Git commit failed: " + err.Error())
+			} else {
+				m.setNotification("Changes committed")
+				m.backlog.Git = model.GetGitState(root)
+			}
+		}
+	case cmd == "git push":
+		if m.backlog != nil {
+			root := filepath.Dir(m.backlog.Current.Root)
+			if err := model.GitPush(root); err != nil {
+				m.setNotification("Git push failed: " + err.Error())
+			} else {
+				m.setNotification("Pushed to remote")
+			}
+		}
+	case cmd == "git log":
+		if m.backlog != nil {
+			root := filepath.Dir(m.backlog.Current.Root)
+			logOutput, err := model.GitLog(root)
+			if err != nil {
+				m.setNotification("Git log failed: " + err.Error())
+			} else {
+				m.setNotification("Recent commits:\n" + logOutput)
+			}
+		}
 	}
 }
 
@@ -439,6 +480,19 @@ func (m *Model) renderHeader() string {
 	// Mode indicator
 	modeLabel := ModeStyle(m.inputMode).Render(fmt.Sprintf(" %s ", m.inputMode.String()))
 	parts = append(parts, modeLabel)
+
+	// Git branch
+	if m.backlog != nil && m.backlog.Git != nil && m.backlog.Git.Branch != "" {
+		branchLabel := m.backlog.Git.Branch
+		if m.backlog.Git.Dirty {
+			branchLabel += " *"
+		}
+		branchPart := lipgloss.NewStyle().
+			Foreground(colorSecondary).
+			Padding(0, 1).
+			Render(branchLabel)
+		parts = append(parts, branchPart)
+	}
 
 	// Time
 	parts = append(parts, timeStyle.Render(formatTime()))

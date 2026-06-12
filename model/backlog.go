@@ -23,6 +23,7 @@ type Backlog struct {
 	Externals []*ProjectSnapshot
 	AllTasks  []*Task
 	AllEpics  map[string]*Epic
+	Git      *GitState
 }
 
 func FindBacklogRoot(start string) (string, error) {
@@ -51,6 +52,7 @@ func LoadBacklog(backlogRoot string) (*Backlog, error) {
 		Current:   current,
 		Externals: make([]*ProjectSnapshot, 0),
 		AllEpics:  make(map[string]*Epic),
+		Git:       GetGitState(filepath.Dir(backlogRoot)),
 	}
 
 	// Load external projects
@@ -374,6 +376,7 @@ func (b *Backlog) Reload() error {
 	b.Externals = newBacklog.Externals
 	b.AllTasks = newBacklog.AllTasks
 	b.AllEpics = newBacklog.AllEpics
+	b.Git = GetGitState(filepath.Dir(b.Current.Root))
 
 	return nil
 }
