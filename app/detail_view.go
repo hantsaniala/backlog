@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/model"
@@ -38,6 +39,10 @@ type detailView struct {
 
 	// Scroll tracking
 	scrollOffset int
+
+	// Viewport for scrollable content
+	view      viewport.Model
+	viewReady bool
 
 	// Sub-tasks checklist
 	subtaskFocus  bool
@@ -252,7 +257,22 @@ func (d *detailView) renderMain() string {
 		BorderForeground(colorPageDetail).
 		Padding(0, 1)
 
-	return detailStyle.Render(content)
+	wrapped := detailStyle.Render(content)
+
+	vpW := d.width - 4
+	vpH := d.height - 6
+	if vpH < 10 {
+		vpH = 10
+	}
+	if !d.viewReady || d.view.Width != vpW {
+		d.view = viewport.New(vpW, vpH)
+		d.viewReady = true
+	}
+	if d.scrollOffset > 0 {
+		d.view.YOffset = d.scrollOffset
+	}
+	d.view.SetContent(wrapped)
+	return d.view.View()
 }
 
 func (d *detailView) renderRelatedPopup() string {

@@ -72,7 +72,7 @@ func (s *dashboardModel) View() string {
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for changes... live reload active"))
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	w := s.width - 4
+	w := s.width - 2
 	if w < 40 {
 		w = 80
 	}

@@ -285,7 +285,7 @@ func (s *sprintViewModel) View() string {
 	b.WriteString("\n\n")
 
 	// Two panels
-	panelW := (s.width - 8) / 2
+	panelW := (s.width - 4) / 2
 	if panelW < 30 {
 		panelW = 30
 	}

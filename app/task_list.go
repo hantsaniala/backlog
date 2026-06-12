@@ -906,10 +906,10 @@ func (s *taskListModel) renderTreeFull() string {
 	}
 
 	if !s.treeReady {
-		s.treeViewport = viewport.New(s.width-4, treeH)
+		s.treeViewport = viewport.New(s.width-2, treeH)
 		s.treeReady = true
 	}
-	s.treeViewport.Width = s.width - 4
+	s.treeViewport.Width = s.width - 2
 	s.treeViewport.Height = treeH
 	s.treeViewport.SetContent(content)
 
