@@ -45,7 +45,7 @@ type sprintViewModel struct {
 }
 
 func (s *sprintViewModel) footerHint() string {
-	return " h/l:move | j/k:nav | >:to sprint | <:to backlog | e:status"
+	return " h/l:move | j/k:nav | Tab:focus"
 }
 
 func (s *sprintViewModel) footerPos() string {
@@ -154,27 +154,6 @@ func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return s, nil
-	case msg.String() == ">":
-		if s.focus == paneLeft && s.leftCursor >= 0 && s.leftCursor < len(s.leftItems) {
-			task := s.leftItems[s.leftCursor]
-			task.Sprint = s.currentSprintName()
-			s.refresh()
-		}
-		return s, nil
-	case msg.String() == "<":
-		if s.focus == paneRight && s.rightCursor >= 0 && s.rightCursor < len(s.rightItems) {
-			task := s.rightItems[s.rightCursor]
-			task.Sprint = ""
-			s.refresh()
-		}
-		return s, nil
-	case key.Matches(msg, NormalKeys.CycleStatus):
-		if s.focus == paneRight && s.rightCursor >= 0 && s.rightCursor < len(s.rightItems) {
-			task := s.rightItems[s.rightCursor]
-			task.Status = nextStatus(task.Status)
-			s.refresh()
-		}
-		return s, nil
 	case key.Matches(msg, NormalKeys.Left):
 		if s.sprintIdx > 0 {
 			s.sprintIdx--
@@ -189,21 +168,6 @@ func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return s, nil
 	}
 	return s, nil
-}
-
-func nextStatus(s model.Status) model.Status {
-	switch s {
-	case model.StatusTodo:
-		return model.StatusInProgress
-	case model.StatusInProgress:
-		return model.StatusReview
-	case model.StatusReview:
-		return model.StatusDone
-	case model.StatusDone:
-		return model.StatusTodo
-	default:
-		return model.StatusTodo
-	}
 }
 
 func (s *sprintViewModel) currentSprintName() string {
@@ -304,7 +268,7 @@ func (s *sprintViewModel) View() string {
 	// Left panel: unassigned items
 	leftBorder := colorBorder
 	if s.focus == paneLeft {
-		leftBorder = colorPageSprint
+		leftBorder = colorPrimary
 	}
 	leftContent := s.renderLeftPanel(panelW, panelH)
 	leftPanel := lipgloss.NewStyle().
@@ -317,7 +281,7 @@ func (s *sprintViewModel) View() string {
 	// Right panel: sprint backlog
 	rightBorder := colorBorder
 	if s.focus == paneRight {
-		rightBorder = colorPageSprint
+		rightBorder = colorPrimary
 	}
 	rightContent := s.renderRightPanel(panelW, panelH)
 	rightPanel := lipgloss.NewStyle().
@@ -382,7 +346,7 @@ func (s *sprintViewModel) renderRightPanel(w, h int) string {
 		if len(group) == 0 {
 			continue
 		}
-		b.WriteString(fmt.Sprintf(" %s (%d)\n", StatusBadge(string(st)), len(group)))
+		b.WriteString(fmt.Sprintf(" %s (%d)\n", statusDot(string(st)), len(group)))
 		for _, t := range group {
 			sel := " "
 			if idx == s.rightCursor && s.focus == paneRight {

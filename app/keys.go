@@ -14,9 +14,7 @@ type normalKeyMap struct {
 	Filter      key.Binding
 	Command     key.Binding
 	Jump        key.Binding
-	Visual      key.Binding
 	Expand      key.Binding
-	CycleStatus key.Binding
 	Related     key.Binding
 	One         key.Binding
 	Two         key.Binding
@@ -42,24 +40,6 @@ type normalKeyMap struct {
 	WordSearchRev key.Binding
 }
 
-type insertKeyMap struct {
-	Cancel   key.Binding
-	Tab      key.Binding
-	LineHome key.Binding
-	LineEnd  key.Binding
-	Enter    key.Binding
-}
-
-type visualKeyMap struct {
-	Cancel    key.Binding
-	Down      key.Binding
-	Up        key.Binding
-	Toggle    key.Binding
-	SelectAll key.Binding
-	Action    key.Binding
-	Assign    key.Binding
-}
-
 var NormalKeys = normalKeyMap{
 	Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("k", "up")),
 	Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("j", "down")),
@@ -72,9 +52,7 @@ var NormalKeys = normalKeyMap{
 	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	Command:     key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "command")),
 	Jump:        key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "jump")),
-	Visual:      key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "select")),
-	Expand:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
-	CycleStatus: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "status")),
+	Expand:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "expand")),
 	Related:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "links")),
 	One:         key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "dashboard")),
 	Two:         key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "tasks")),
@@ -100,20 +78,3 @@ var NormalKeys = normalKeyMap{
 	WordSearchRev: key.NewBinding(key.WithKeys("#"), key.WithHelp("#", "rsearch")),
 }
 
-var InsertKeys = insertKeyMap{
-	Cancel:   key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel")),
-	Tab:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "next")),
-	LineHome: key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("C-a", "home")),
-	LineEnd:  key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("C-e", "end")),
-	Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
-}
-
-var VisualKeys = visualKeyMap{
-	Cancel:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("Esc", "cancel")),
-	Down:      key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j", "extend")),
-	Up:        key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "extend")),
-	Toggle:    key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "toggle")),
-	SelectAll: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all")),
-	Action:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "action")),
-	Assign:    key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "assign")),
-}

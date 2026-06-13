@@ -210,7 +210,7 @@ func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.Projec
 	}{
 		{"todo", model.StatusTodo, colorInfo},
 		{"in-progress", model.StatusInProgress, colorWarning},
-		{"review", model.StatusReview, colorSecondary},
+		{"review", model.StatusReview, colorPrimary},
 		{"on-hold", model.StatusOnHold, colorTextDim},
 		{"done", model.StatusDone, colorSuccess},
 		{"cancelled", model.StatusCancelled, colorError},

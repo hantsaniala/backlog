@@ -242,29 +242,6 @@ func (m *Model) handlePaletteCommand(cmd string) {
 		m.currentScreen = screenTaskList
 	case cmd == "focus sprints":
 		m.currentScreen = screenSprintView
-	case cmd == "git commit":
-		if m.backlog != nil {
-			root := filepath.Dir(m.backlog.Current.Root)
-			prefix := "feat(backlog):"
-			if m.conf != nil {
-				prefix = m.conf.Git.CommitPrefix
-			}
-			if err := model.GitCommit(root, prefix); err != nil {
-				m.setNotification("Git commit failed: " + err.Error())
-			} else {
-				m.setNotification("Changes committed")
-				m.backlog.Git = model.GetGitState(root)
-			}
-		}
-	case cmd == "git push":
-		if m.backlog != nil {
-			root := filepath.Dir(m.backlog.Current.Root)
-			if err := model.GitPush(root); err != nil {
-				m.setNotification("Git push failed: " + err.Error())
-			} else {
-				m.setNotification("Pushed to remote")
-			}
-		}
 	case cmd == "git log":
 		if m.backlog != nil {
 			root := filepath.Dir(m.backlog.Current.Root)
@@ -328,10 +305,6 @@ func (m *Model) View() string {
 func (m *Model) renderHeader() string {
 	var leftParts, rightParts []string
 
-	// Mode indicator
-	modeLabel := ModeStyle(m.inputMode).Render(fmt.Sprintf(" %s ", m.inputMode.String()))
-	leftParts = append(leftParts, modeLabel)
-
 	// Tab bar
 	tabs := []string{
 		renderTab("1 Dashboard", m.currentScreen == screenDashboard),
@@ -353,7 +326,7 @@ func (m *Model) renderHeader() string {
 			branchLabel += " *"
 		}
 		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(colorSecondary).
+			Foreground(colorPrimary).
 			Padding(0, 1).
 			Render(branchLabel))
 	}
@@ -421,11 +394,7 @@ func (m *Model) renderFooter() string {
 func (m *Model) contextualHints() string {
 	switch m.inputMode {
 	case ModeNormal:
-		return " j/k:move | Enter:open | e:status | v:select | /:filter | ::cmd | ?:help | q:quit"
-	case ModeInsert:
-		return " Type filter | Esc:cancel | Enter:confirm"
-	case ModeVisual:
-		return " j/k:extend | Space:toggle | a:all | x:action | Esc:cancel"
+		return " j/k:move | Enter:open | /:filter | ::cmd | ?:help | q:quit"
 	case ModeCommandPalette:
 		return " Type command | Enter:execute | Esc:cancel"
 	case ModeHelp:

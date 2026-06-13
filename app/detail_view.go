@@ -34,9 +34,6 @@ type detailView struct {
 	// Preview popup (within related)
 	previewTask *model.Task
 
-	// Status popup (external, managed by caller)
-	showStatusPopup bool
-
 	// Scroll tracking
 	scrollOffset int
 
@@ -197,7 +194,7 @@ func (d *detailView) renderMain() string {
 			line := fmt.Sprintf("  %s %s %s%s", cb, st.ID, st.Summary, assignee)
 			if i == d.subtaskCursor {
 				if d.subtaskFocus {
-					line = lipgloss.NewStyle().Foreground(colorTextBright).Background(colorPageBacklog).Render(" " + line)
+					line = lipgloss.NewStyle().Foreground(colorTextBright).Background(colorSurface).Render(" " + line)
 				} else {
 					line = lipgloss.NewStyle().Foreground(colorTextDim).Render(line)
 				}
@@ -249,12 +246,12 @@ func (d *detailView) renderMain() string {
 		scrollPct = fmt.Sprintf(" %d%%", pct)
 	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
-		fmt.Sprintf(" e:cycle status  r:related  C-d/u:scroll%s  Esc/q:back", scrollPct)))
+		fmt.Sprintf(" r:related  C-d/u:scroll%s  Esc/q:back", scrollPct)))
 
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
 	detailStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPageDetail).
+		BorderForeground(colorPrimary).
 		Padding(0, 1)
 
 	wrapped := detailStyle.Render(content)
@@ -311,7 +308,7 @@ func (d *detailView) renderRelatedPopup() string {
 	content := lipgloss.NewStyle().
 		Width(popupW).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPagePopup).
+		BorderForeground(colorPrimary).
 		Padding(1, 2).
 		Background(colorSurface).
 		Render(b.String())

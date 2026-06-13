@@ -17,14 +17,6 @@ type paletteCommand struct {
 }
 
 var paletteCommands = []paletteCommand{
-	{label: "status todo", description: "Set item status to Todo"},
-	{label: "status in-progress", description: "Set item status to In Progress"},
-	{label: "status review", description: "Set item status to Review"},
-	{label: "status done", description: "Set item status to Done"},
-	{label: "status on-hold", description: "Set item status to On Hold"},
-	{label: "status cancelled", description: "Set item status to Cancelled"},
-	{label: "assign", description: "Assign current item to a user"},
-	{label: "sprint", description: "Move item to a sprint"},
 	{label: "export csv", description: "Export backlog as CSV"},
 	{label: "export json", description: "Export backlog as JSON"},
 	{label: "filter status=todo", description: "Filter by status: todo", aliases: []string{"f status todo"}},
@@ -35,8 +27,6 @@ var paletteCommands = []paletteCommand{
 	{label: "focus dashboard", description: "Switch to dashboard view"},
 	{label: "focus backlog", description: "Switch to backlog view"},
 	{label: "focus sprints", description: "Switch to sprint view"},
-	{label: "git commit", description: "Commit .backlog/ changes", aliases: []string{"gc"}},
-	{label: "git push", description: "Push commits to remote", aliases: []string{"gp"}},
 	{label: "git log", description: "Show recent git log", aliases: []string{"gl"}},
 }
 

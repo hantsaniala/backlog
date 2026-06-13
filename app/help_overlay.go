@@ -25,16 +25,14 @@ func (h *helpModel) categories() [][]helpItem {
 			{key: "h/l", description: "Collapse/expand"},
 			{key: "Enter", description: "Open / confirm"},
 			{key: "Esc", description: "Back / cancel"},
-			{key: "Space", description: "Toggle status"},
+			{key: "Space", description: "Expand/collapse"},
 			{key: "q", description: "Quit"},
 		},
 		{
 			{key: "1/2/3", description: "Switch screens"},
 			{key: "/", description: "Filter tasks"},
 			{key: ":", description: "Command palette"},
-			{key: "e", description: "Cycle status"},
 			{key: "o", description: "Open in editor"},
-			{key: "v", description: "Visual select"},
 			{key: "f", description: "Jump hints"},
 		},
 		{

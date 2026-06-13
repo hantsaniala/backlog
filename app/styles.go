@@ -12,25 +12,20 @@ import (
 )
 
 var (
-	colorPrimary    = lipgloss.Color("#7C3AED")
-	colorSecondary  = lipgloss.Color("#06B6D4")
-	colorSuccess    = lipgloss.Color("#10B981")
-	colorWarning    = lipgloss.Color("#F59E0B")
-	colorError      = lipgloss.Color("#EF4444")
-	colorInfo       = lipgloss.Color("#3B82F6")
-	colorAccent     = lipgloss.Color("#A78BFA")
+	colorPrimary    = lipgloss.Color("#14b8a6")
+	colorSuccess    = lipgloss.Color("#22c55e")
+	colorWarning    = lipgloss.Color("#eab308")
+	colorError      = lipgloss.Color("#ef4444")
+	colorInfo       = lipgloss.Color("#06b6d4")
+	colorAccent     = lipgloss.Color("#14b8a6")
 
-	colorBg         = lipgloss.Color("#1E1E2E")
-	colorSurface    = lipgloss.Color("#2D2D44")
-	colorSurfaceAlt = lipgloss.Color("#25253D")
-	colorText       = lipgloss.Color("#E2E8F0")
-	colorTextDim    = lipgloss.Color("#64748B")
-	colorTextBright = lipgloss.Color("#F8FAFC")
-	colorBorder     = lipgloss.Color("#3D3D5C")
-
-	colorJumpHintBg  = lipgloss.Color("#000000")
-	colorJumpHintFg  = lipgloss.Color("#FFD700")
-	colorOverlayBg   = lipgloss.Color("#1E1E2E")
+	colorBg         = lipgloss.Color("#18181b")
+	colorSurface    = lipgloss.Color("#27272a")
+	colorSurfaceAlt = lipgloss.Color("#1f1f23")
+	colorText       = lipgloss.Color("#e4e4e7")
+	colorTextDim    = lipgloss.Color("#71717a")
+	colorTextBright = lipgloss.Color("#fafafa")
+	colorBorder     = lipgloss.Color("#3f3f46")
 
 	headerStyle = lipgloss.NewStyle().
 			Foreground(colorTextBright).
@@ -51,26 +46,11 @@ var (
 	statusColors = map[string]lipgloss.Color{
 		"todo":        colorInfo,
 		"in-progress": colorWarning,
-		"review":      colorSecondary,
+		"review":      colorPrimary,
 		"on-hold":     colorTextDim,
 		"done":        colorSuccess,
 		"cancelled":   colorError,
 	}
-
-	statusGlyph = map[string]string{
-		"todo":        "[ ]",
-		"in-progress": "[~]",
-		"review":      "[?]",
-		"on-hold":     "[ ]",
-		"done":        "[x]",
-		"cancelled":   "[-]",
-	}
-
-	popupStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPrimary).
-			Padding(1, 2).
-			Background(colorSurface)
 
 	focusedRowStyle = lipgloss.NewStyle().
 			Background(colorSurfaceAlt)
@@ -79,46 +59,13 @@ var (
 			Foreground(colorPrimary).
 			Render(">")
 
-	modeNormalStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#2D2D44")).
-			Foreground(colorSuccess).
-			Bold(true).
-			Padding(0, 2)
-
-	modeInsertStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#2D2D44")).
-			Foreground(colorWarning).
-			Bold(true).
-			Padding(0, 2)
-
-	modeVisualStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#2D2D44")).
-			Foreground(colorAccent).
-			Bold(true).
-			Padding(0, 2)
-
-	modeHelpStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("#2D2D44")).
-			Foreground(colorInfo).
-			Bold(true).
-			Padding(0, 2)
-
-	breadcrumbStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Padding(0, 1)
-
-	breadcrumbActiveStyle = lipgloss.NewStyle().
-				Foreground(colorTextBright).
-				Bold(true).
-				Padding(0, 1)
-
 	timeStyle = lipgloss.NewStyle().
 			Foreground(colorTextDim).
 			Padding(0, 2)
 
 	jumpHintStyle = lipgloss.NewStyle().
-			Background(colorJumpHintBg).
-			Foreground(colorJumpHintFg).
+			Background(colorSurface).
+			Foreground(colorAccent).
 			Bold(true).
 			Padding(0, 1)
 
@@ -162,27 +109,10 @@ var (
 			Foreground(colorText).
 			Padding(0, 1)
 
-	scrollUpStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Render(" ^")
-
-	scrollDownStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Render(" v")
-
 	notificationStyle = lipgloss.NewStyle().
 				Foreground(colorWarning).
 				Bold(true).
 				Padding(0, 1)
-
-	pageNavStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Padding(0, 2)
-
-	colorPageBacklog = lipgloss.Color("#00ffff")
-	colorPageDetail  = lipgloss.Color("#00ff88")
-	colorPageSprint  = lipgloss.Color("#ff44ff")
-	colorPagePopup   = lipgloss.Color("#ffff44")
 )
 
 func StatusBadge(status string) string {
@@ -191,7 +121,7 @@ func StatusBadge(status string) string {
 		c = colorTextDim
 	}
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
+		Foreground(colorBg).
 		Background(c).
 		Bold(true).
 		Padding(0, 1).
@@ -203,11 +133,7 @@ func statusDot(status string) string {
 	if !ok {
 		c = colorTextDim
 	}
-	g, ok := statusGlyph[status]
-	if !ok {
-		g = "?"
-	}
-	return lipgloss.NewStyle().Foreground(c).Render(g)
+	return lipgloss.NewStyle().Foreground(c).Render("●")
 }
 
 func priorityDot(priority string) string {
@@ -231,7 +157,7 @@ func typeDot(t string) string {
 	case "bug":
 		c = colorError
 	case "story":
-		c = colorSecondary
+		c = colorPrimary
 	case "spike":
 		c = colorWarning
 	case "chore":
@@ -248,7 +174,7 @@ func typeBadge(t string) string {
 	case "bug":
 		c = colorError
 	case "story":
-		c = colorSecondary
+		c = colorPrimary
 	case "spike":
 		c = colorWarning
 	case "chore":
@@ -257,16 +183,11 @@ func typeBadge(t string) string {
 		c = colorPrimary
 	}
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
+		Foreground(colorBg).
 		Background(c).
 		Bold(true).
 		Padding(0, 1).
 		Render(t)
-}
-
-func sectionHeader(title string, color lipgloss.Color, width int) string {
-	line := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("─", width-2))
-	return fmt.Sprintf(" %s %s %s", lipgloss.NewStyle().Foreground(color).Render("┃"), title, line)
 }
 
 func progressBar(filled, total int, width int) string {
@@ -297,45 +218,10 @@ func progressBar(filled, total int, width int) string {
 
 func ExternalBadge() string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#1E1E2E")).
+		Foreground(colorBg).
 		Background(colorTextDim).
 		Padding(0, 1).
 		Render("ext")
-}
-
-func shortStatus(s string) string {
-	switch s {
-	case "todo":
-		return "todo"
-	case "in-progress":
-		return "prog"
-	case "review":
-		return "rvw"
-	case "on-hold":
-		return "hold"
-	case "done":
-		return "done"
-	case "cancelled":
-		return "canc"
-	default:
-		return s
-	}
-}
-
-// ModeStyle returns the appropriate indicator for a given input mode.
-func ModeStyle(mode InputMode) lipgloss.Style {
-	switch mode {
-	case ModeNormal:
-		return modeNormalStyle
-	case ModeInsert:
-		return modeInsertStyle
-	case ModeVisual:
-		return modeVisualStyle
-	case ModeHelp:
-		return modeHelpStyle
-	default:
-		return modeNormalStyle
-	}
 }
 
 // ApplyTheme overrides global color variables with values from config.
@@ -345,9 +231,6 @@ func ApplyTheme(t *config.ThemeConfig) {
 	}
 	if t.Primary != "" {
 		colorPrimary = lipgloss.Color(t.Primary)
-	}
-	if t.Secondary != "" {
-		colorSecondary = lipgloss.Color(t.Secondary)
 	}
 	if t.Success != "" {
 		colorSuccess = lipgloss.Color(t.Success)
@@ -393,7 +276,7 @@ func (m *Model) Conf() *config.Config {
 // newProgressBar returns a progress.Model with solid fill and no percentage.
 func newProgressBar(width int) progress.Model {
 	return progress.New(
-		progress.WithSolidFill("#10B981"),
+		progress.WithSolidFill("#22c55e"),
 		progress.WithFillCharacters('█', '░'),
 		progress.WithoutPercentage(),
 		progress.WithWidth(width),

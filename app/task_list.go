@@ -26,9 +26,7 @@ const (
 	modeTree viewMode = iota
 	modeDetail
 	modeSearch
-	modeStatusPopup
 	modeInlineFilter
-	modeAssign
 )
 
 type taskListModel struct {
@@ -55,15 +53,10 @@ type taskListModel struct {
 	searchModal   *searchModalModel
 	searchRunning bool
 
-	statusPopup   *statusPopupModel
-	statusRunning bool
-
 	treeViewport viewport.Model
 	treeReady    bool
 
 	jumpHints *jumpHintState
-	visualSel *visualSelection
-	bulkAssignMode bool
 
 	pendingG     bool
 	pendingZ     bool
@@ -91,7 +84,6 @@ func newScreenTaskList(b *model.Backlog) *taskListModel {
 		inlineInput:   ti,
 		filterHistory: make([]string, 0),
 		jumpHints:     newJumpHintState(),
-		visualSel:     newVisualSelection(),
 		marks:         make(map[string]string),
 		hoverLine:     -1,
 	}
@@ -109,14 +101,8 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if s.mode == modeSearch && s.searchRunning {
 		return s.handleSearchUpdate(msg)
 	}
-	if s.mode == modeStatusPopup && s.statusRunning {
-		return s.handleStatusPopupUpdate(msg)
-	}
 	if s.mode == modeInlineFilter {
 		return s.handleInlineFilterUpdate(msg)
-	}
-	if s.mode == modeAssign {
-		return s.handleAssignUpdate(msg)
 	}
 
 	switch msg := msg.(type) {
@@ -190,60 +176,6 @@ func (s *taskListModel) handleSearchUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, cmd
 }
 
-func (s *taskListModel) handleStatusPopupUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
-	updated, cmd := s.statusPopup.Update(msg)
-	s.statusPopup = updated.(*statusPopupModel)
-	if result, ok := <-catchMsg(cmd); ok {
-		if update, ok := result.(StatusUpdateMsg); ok {
-			if s.detailView != nil {
-				s.detailView.task.Status = update.NewStatus
-			}
-		}
-		s.statusRunning = false
-		s.mode = modeDetail
-		return s, nil
-	}
-	return s, cmd
-}
-
-func (s *taskListModel) handleAssignUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			s.bulkAssignMode = false
-			s.mode = modeTree
-			return s, nil
-		case "enter":
-			assignee := s.inlineInput.Value()
-			if assignee != "" {
-				if s.bulkAssignMode {
-					// Bulk assign all selected items
-					count := 0
-					for _, t := range s.backlog.AllTasks {
-						if s.visualSel.selected[t.ID] {
-							t.Assignee = assignee
-							count++
-						}
-					}
-					s.visualSel.cancel()
-					s.bulkAssignMode = false
-					s.mode = modeTree
-					return s, notifyCmd(fmt.Sprintf("Assigned %d items to %s", count, assignee))
-				} else if s.cursor >= 0 && s.cursor < len(s.visibleRows) {
-					task := s.visibleRows[s.cursor].task
-					task.Assignee = assignee
-				}
-			}
-			s.mode = modeTree
-			return s, nil
-		}
-	}
-	var cmd tea.Cmd
-	s.inlineInput, cmd = s.inlineInput.Update(msg)
-	return s, cmd
-}
-
 func (s *taskListModel) handleInlineFilterUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -287,11 +219,6 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Jump hints active: route all keypresses to jump buffer
 	if s.jumpHints.active {
 		return s.handleJumpKey(msg)
-	}
-
-	// Visual mode active: route to visual handler
-	if s.visualSel.active {
-		return s.handleVisualKey(msg)
 	}
 
 	// Pending multi-key sequences
@@ -491,8 +418,6 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				s.expanded[r.task.ID] = !oldVal
 				s.buildVisibleRows()
 				s.clampCursor()
-			} else {
-				s.toggleDone(r.task)
 			}
 		}
 		return s, nil
@@ -597,30 +522,6 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	// Visual mode
-	case key.Matches(msg, NormalKeys.Visual):
-		s.visualSel.activate(s.cursor)
-		return s, nil
-
-	// Quick assign
-	case msg.String() == "a":
-		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
-			s.inlineInput.SetValue("")
-			s.inlineInput.Placeholder = "assignee name..."
-			s.inlineInput.Focus()
-			s.mode = modeAssign
-		}
-		return s, nil
-
-	// Cycle status
-	case key.Matches(msg, NormalKeys.CycleStatus):
-		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
-			task := s.visibleRows[s.cursor].task
-			task.Status = nextStatus(task.Status)
-			s.rebuild()
-		}
-		return s, nil
-
 	// Related items from list
 	case key.Matches(msg, NormalKeys.Related):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
@@ -656,59 +557,6 @@ func (s *taskListModel) handleJumpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-func (s *taskListModel) handleVisualKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, VisualKeys.Cancel):
-		s.visualSel.cancel()
-		return s, nil
-	case key.Matches(msg, VisualKeys.Toggle):
-		if s.cursor >= 0 && s.cursor < len(s.visibleRows) {
-			s.visualSel.toggle(s.visibleRows[s.cursor].task.ID)
-		}
-		return s, nil
-	case key.Matches(msg, VisualKeys.SelectAll):
-		s.visualSel.selectAll(s.backlog.AllTasks)
-		return s, nil
-	case key.Matches(msg, VisualKeys.Action):
-		// Bulk status change: cycle all selected items
-		if len(s.visualSel.selected) > 0 {
-			for _, t := range s.backlog.AllTasks {
-				if s.visualSel.selected[t.ID] {
-					t.Status = nextStatus(t.Status)
-				}
-			}
-			selCount := len(s.visualSel.selected)
-			s.visualSel.cancel()
-			s.rebuild()
-			return s, notifyCmd(fmt.Sprintf("Updated %d items", selCount))
-		}
-		return s, nil
-	case key.Matches(msg, VisualKeys.Assign):
-		// Bulk assign: show assign input for all selected items
-		if len(s.visualSel.selected) > 0 {
-			s.inlineInput.SetValue("")
-			s.inlineInput.Placeholder = "assignee name..."
-			s.inlineInput.Focus()
-			s.bulkAssignMode = true
-			s.mode = modeAssign
-		}
-		return s, nil
-	case key.Matches(msg, VisualKeys.Down):
-		if s.cursor < len(s.visibleRows)-1 {
-			s.cursor++
-			s.visualSel.extendDown(s.backlog.AllTasks, s.cursor)
-		}
-		return s, nil
-	case key.Matches(msg, VisualKeys.Up):
-		if s.cursor > 0 {
-			s.cursor--
-			s.visualSel.extendUp(s.backlog.AllTasks, s.cursor)
-		}
-		return s, nil
-	}
-	return s, nil
-}
-
 // --- Detail key handler ---
 
 func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -734,25 +582,6 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if s.detailView != nil && len(s.detailView.subtaskTasks) > 0 {
 			s.detailView.subtaskFocus = !s.detailView.subtaskFocus
 		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.Expand):
-		if s.detailView != nil && s.detailView.subtaskFocus && len(s.detailView.subtaskTasks) > 0 {
-			st := s.detailView.subtaskTasks[s.detailView.subtaskCursor]
-			if st.Status == model.StatusDone {
-				st.Status = model.StatusTodo
-			} else {
-				st.Status = model.StatusDone
-			}
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.CycleStatus):
-		s.mode = modeStatusPopup
-		if s.detailView != nil {
-			s.statusPopup = newStatusPopup(s.detailView.task, 30)
-		}
-		s.statusRunning = true
 		return s, nil
 
 	case key.Matches(msg, NormalKeys.Related):
@@ -842,18 +671,6 @@ func (s *taskListModel) enterDetail(task *model.Task) {
 	s.mode = modeDetail
 }
 
-func (s *taskListModel) toggleDone(task *model.Task) {
-	if task.Status == model.StatusDone {
-		task.Status = model.StatusTodo
-	} else {
-		task.Status = model.StatusDone
-	}
-	s.rebuild()
-	if s.detailView != nil && s.detailView.task.ID == task.ID {
-		s.detailView.task.Status = task.Status
-	}
-}
-
 func (s *taskListModel) centerCursor() {
 	// Centers the viewport on the cursor by adjusting scroll position
 	half := (s.height - 8) / 2
@@ -875,12 +692,7 @@ func (s *taskListModel) View() string {
 	switch s.mode {
 	case modeDetail:
 		if s.detailView != nil {
-			v := s.detailView.View()
-			if s.mode == modeStatusPopup && s.statusRunning && s.statusPopup != nil {
-				popup := s.statusPopup.View()
-				v = lipgloss.Place(s.width, s.height, lipgloss.Center, lipgloss.Center, popup)
-			}
-			return v
+			return s.detailView.View()
 		}
 		return ""
 	case modeSearch:
@@ -898,12 +710,7 @@ func (s *taskListModel) View() string {
 func (s *taskListModel) renderTreeFull() string {
 	var b strings.Builder
 
-	// Assign input bar
-	if s.mode == modeAssign {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Assign to: "))
-		b.WriteString(s.inlineInput.View())
-		b.WriteString("\n")
-	} else if s.mode == modeInlineFilter {
+	if s.mode == modeInlineFilter {
 		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" / "))
 		b.WriteString(s.inlineInput.View())
 		b.WriteString("\n")
@@ -913,17 +720,10 @@ func (s *taskListModel) renderTreeFull() string {
 		b.WriteString("\n")
 	}
 
-	// Visual mode indicator
-	if s.visualSel.active {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorAccent).Bold(true).Render(
-			s.visualSel.indicator()))
-		b.WriteString("\n")
-	}
-
 	// Main tree content
 	content := s.renderTree()
 	treeH := s.height - 8
-	if s.mode == modeInlineFilter || s.filterOn || s.visualSel.active {
+	if s.mode == modeInlineFilter || s.filterOn {
 		treeH = s.height - 9
 	}
 	if treeH < 5 {
@@ -942,15 +742,6 @@ func (s *taskListModel) renderTreeFull() string {
 	scrollbarStr := renderScrollbar(s.treeViewport, treeH)
 	b.WriteString(addScrollbar(vpView, scrollbarStr))
 
-	// Scroll indicators
-	below := len(s.visibleRows) - int(s.treeViewport.YOffset) - treeH
-	if int(s.treeViewport.YOffset) > 0 {
-		b.WriteString(scrollUpStyle)
-	}
-	if below > 0 {
-		b.WriteString(scrollDownStyle)
-	}
-
 	// Page indicator
 	totalItems := len(s.visibleRows)
 	pageNum := int(s.treeViewport.YOffset)/treeH + 1
@@ -960,11 +751,11 @@ func (s *taskListModel) renderTreeFull() string {
 	}
 	pageStr := fmt.Sprintf("Page %d/%d  [ ] prev/next  ", pageNum, totalPages)
 	b.WriteString("\n")
-	b.WriteString(pageNavStyle.Render(pageStr))
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(pageStr))
 
 	// Contextual info
 	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | space toggle | enter detail | Esc back | q quit",
+	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | enter detail | Esc back | q quit",
 		totalItems)
 	if s.filterOn {
 		info = fmt.Sprintf("🔍 %q (%d) ", s.filterText, totalItems) +
@@ -1007,7 +798,6 @@ func (s *taskListModel) renderTree() string {
 		}
 
 		g := statusDot(string(r.task.Status))
-		statusStr := StatusBadge(string(r.task.Status))
 
 		sp := ""
 		if r.task.StoryPoints != nil {
@@ -1029,18 +819,13 @@ func (s *taskListModel) renderTree() string {
 		if r.task.Type == model.TypeEpic {
 			labelStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
 		} else if r.task.Type == model.TypeStory {
-			labelStyle = lipgloss.NewStyle().Foreground(colorSecondary)
+			labelStyle = lipgloss.NewStyle().Foreground(colorPrimary)
 		} else {
 			labelStyle = lipgloss.NewStyle().Foreground(colorText)
 		}
 		label = labelStyle.Render(label)
 
-		line := fmt.Sprintf(" %s%s%s %s %s%s%s", indent, expandSymbol, branchPrefix, g, label, sp, " "+statusStr)
-
-		// Visual mode highlight
-		if s.visualSel.active && s.visualSel.selected[r.task.ID] {
-			line = lipgloss.NewStyle().Background(colorSurface).Render(line)
-		}
+		line := fmt.Sprintf(" %s%s%s %s %s%s", indent, expandSymbol, branchPrefix, g, label, sp)
 
 		if i == s.cursor {
 			line = leftBorderBar + focusedRowStyle.Render(line)
@@ -1085,15 +870,9 @@ func (s *taskListModel) footerHint() string {
 		if s.detailView.state == detailPreview {
 			return " Esc:back"
 		}
-		if s.statusRunning {
-			return " j/k:select | Enter:confirm | Esc:cancel"
-		}
-		return " j/k:scroll | e:status | o:open | r:links | C-d/u:scroll | Esc:back"
+		return " j/k:scroll | o:open | r:links | C-d/u:scroll | Esc:back"
 	}
-	if s.mode == modeAssign {
-		return " Type assignee | Enter:confirm | Esc:cancel"
-	}
-	return " j/k:move | Enter:view | Space:toggle | e:status | /:filter | ::cmd | ?:help"
+	return " j/k:move | Enter:view | /:filter | ::cmd | ?:help"
 }
 
 // --- Tree building ---
