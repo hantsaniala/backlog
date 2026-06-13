@@ -45,7 +45,7 @@ type sprintViewModel struct {
 }
 
 func (s *sprintViewModel) footerHint() string {
-	return " h/l:move | j/k:nav | Tab:focus"
+	return " h/l:move | j/k:nav"
 }
 
 func (s *sprintViewModel) footerPos() string {
@@ -82,13 +82,6 @@ func (s *sprintViewModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, NormalKeys.Quit):
 		return s, tea.Quit
-	case msg.String() == "tab":
-		if s.focus == paneLeft {
-			s.focus = paneRight
-		} else {
-			s.focus = paneLeft
-		}
-		return s, nil
 	case key.Matches(msg, NormalKeys.Filter):
 		return s, nil // TODO: search modal
 	case key.Matches(msg, NormalKeys.Up), key.Matches(msg, NormalKeys.Down):

@@ -59,10 +59,6 @@ var (
 			Foreground(colorPrimary).
 			Render(">")
 
-	timeStyle = lipgloss.NewStyle().
-			Foreground(colorTextDim).
-			Padding(0, 2)
-
 	jumpHintStyle = lipgloss.NewStyle().
 			Background(colorSurface).
 			Foreground(colorAccent).

@@ -1,7 +1,5 @@
 package app
 
-import "time"
-
 type InputMode int
 
 const (
@@ -21,8 +19,4 @@ func (m InputMode) String() string {
 	default:
 		return "NORMAL"
 	}
-}
-
-func formatTime() string {
-	return time.Now().Format("15:04")
 }

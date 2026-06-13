@@ -35,6 +35,7 @@ type Model struct {
 	width         int
 	height        int
 	reloading     bool
+	sidebar       *sidebarModel
 
 	inputMode InputMode
 
@@ -49,7 +50,6 @@ type Model struct {
 
 	// Editor integration
 	editorCmd string
-	nvimMode  bool
 
 	// Configuration
 	conf *config.Config
@@ -72,6 +72,7 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 		inputMode:     ModeNormal,
 		helpModel:     newHelpModel(),
 		conf:          cfg,
+		sidebar:       newSidebar(),
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
@@ -79,7 +80,6 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 	m.screens[screenSprintView] = newScreenSprintView(b)
 
 	if os.Getenv("NVIM") != "" || os.Getenv("NVIM_LISTEN_ADDRESS") != "" {
-		m.nvimMode = true
 		m.editorCmd = "nvim --remote-send"
 	}
 
@@ -104,13 +104,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.sidebar.SetHeight(msg.Height)
 		if m.palette != nil {
 			m.palette.width = msg.Width
 			m.palette.height = msg.Height
 		}
+		contentMsg := msg
+		contentMsg.Width = msg.Width - sidebarWidth
+		if contentMsg.Width < 1 {
+			contentMsg.Width = 1
+		}
 		for _, s := range m.screens {
 			if u, ok := s.(tea.Model); ok {
-				u.Update(msg)
+				u.Update(contentMsg)
 			}
 		}
 
@@ -157,12 +163,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.palette.Init()
 		case key.Matches(msg, NormalKeys.One):
 			m.currentScreen = screenDashboard
+			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case key.Matches(msg, NormalKeys.Two):
 			m.currentScreen = screenTaskList
+			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case key.Matches(msg, NormalKeys.Three):
 			m.currentScreen = screenSprintView
+			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
+			return m, nil
+		case msg.String() == "tab":
+			m.currentScreen = (m.currentScreen + 1) % 3
+			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		}
 
@@ -238,10 +251,13 @@ func (m *Model) handlePaletteCommand(cmd string) {
 	switch {
 	case cmd == "focus dashboard":
 		m.currentScreen = screenDashboard
+		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "focus backlog":
 		m.currentScreen = screenTaskList
+		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "focus sprints":
 		m.currentScreen = screenSprintView
+		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "git log":
 		if m.backlog != nil {
 			root := filepath.Dir(m.backlog.Current.Root)
@@ -265,25 +281,22 @@ func (m *Model) View() string {
 		return lipgloss.NewStyle().Foreground(colorWarning).Render("  Reloading...")
 	}
 
-	var b strings.Builder
-
-	b.WriteString(m.renderHeader())
-	b.WriteString("\n")
-
 	if m.showHelp {
-		b.WriteString(m.helpModel.View(m.width, m.height))
-		return b.String()
+		return m.helpModel.View(m.width, m.height)
 	}
 
 	if m.inputMode == ModeCommandPalette && m.palette != nil {
-		b.WriteString(m.palette.View())
-		return b.String()
+		return m.palette.View()
 	}
 
+	sidebarView := m.sidebar.View()
+	contentView := ""
 	if s, ok := m.screens[m.currentScreen]; ok {
-		b.WriteString(s.View())
+		contentView = s.View()
 	}
 
+	var b strings.Builder
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, contentView))
 	b.WriteString("\n")
 	b.WriteString(m.renderFooter())
 
@@ -300,56 +313,6 @@ func (m *Model) View() string {
 	}
 
 	return b.String()
-}
-
-func (m *Model) renderHeader() string {
-	var leftParts, rightParts []string
-
-	// Tab bar
-	tabs := []string{
-		renderTab("1 Dashboard", m.currentScreen == screenDashboard),
-		renderTab("2 Tasks", m.currentScreen == screenTaskList),
-		renderTab("3 Sprints", m.currentScreen == screenSprintView),
-	}
-	leftParts = append(leftParts, strings.Join(tabs, ""))
-
-	// Right side
-	if m.nvimMode {
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(colorSuccess).
-			Padding(0, 1).
-			Render("[nvim]"))
-	}
-	if m.backlog != nil && m.backlog.Git != nil && m.backlog.Git.Branch != "" {
-		branchLabel := m.backlog.Git.Branch
-		if m.backlog.Git.Dirty {
-			branchLabel += " *"
-		}
-		rightParts = append(rightParts, lipgloss.NewStyle().
-			Foreground(colorPrimary).
-			Padding(0, 1).
-			Render(branchLabel))
-	}
-	rightParts = append(rightParts, timeStyle.Render(formatTime()))
-
-	left := strings.Join(leftParts, " ")
-	right := strings.Join(rightParts, "  ")
-	avail := m.width - len(left) - len(right)
-	if avail < 0 {
-		avail = 0
-	}
-
-	return lipgloss.NewStyle().
-		Background(colorSurface).
-		Padding(0, 1).
-		Render(left + strings.Repeat(" ", avail) + right)
-}
-
-func renderTab(label string, active bool) string {
-	if active {
-		return tabActiveStyle.Render(" " + label + " ")
-	}
-	return tabInactiveStyle.Render(" " + label + " ")
 }
 
 func (m *Model) renderFooter() string {
@@ -394,7 +357,7 @@ func (m *Model) renderFooter() string {
 func (m *Model) contextualHints() string {
 	switch m.inputMode {
 	case ModeNormal:
-		return " j/k:move | Enter:open | /:filter | ::cmd | ?:help | q:quit"
+		return " j/k:move | Enter:open | /:filter | ::cmd | Tab:nav | ?:help | q:quit"
 	case ModeCommandPalette:
 		return " Type command | Enter:execute | Esc:cancel"
 	case ModeHelp:

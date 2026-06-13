@@ -578,12 +578,6 @@ func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		s.detailView = nil
 		return s, nil
 
-	case msg.String() == "tab":
-		if s.detailView != nil && len(s.detailView.subtaskTasks) > 0 {
-			s.detailView.subtaskFocus = !s.detailView.subtaskFocus
-		}
-		return s, nil
-
 	case key.Matches(msg, NormalKeys.Related):
 		if s.detailView != nil {
 			s.detailView.resolveLinks()
