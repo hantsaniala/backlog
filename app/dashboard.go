@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -13,13 +14,17 @@ import (
 type dashboardModel struct {
 	backlog  *model.Backlog
 	viewport viewport.Model
+	prog     progress.Model
 	ready    bool
 	width    int
 	height   int
 }
 
 func newScreenDashboard(b *model.Backlog) *dashboardModel {
-	return &dashboardModel{backlog: b}
+	return &dashboardModel{
+		backlog: b,
+		prog:    newProgressBar(40),
+	}
 }
 
 func (s *dashboardModel) Init() tea.Cmd { return nil }
@@ -31,6 +36,12 @@ func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.width = msg.Width
 		s.height = msg.Height
 		s.ready = false
+		contentWidth := s.width - 2
+		barW := contentWidth - 8
+		if barW < 10 {
+			barW = 10
+		}
+		s.prog = newProgressBar(barW)
 	case reloadMsg:
 		s.refresh()
 	}
@@ -40,62 +51,89 @@ func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *dashboardModel) View() string {
 	var b strings.Builder
+	contentWidth := s.width - 2
+	if contentWidth < 40 {
+		contentWidth = 80
+	}
 
-	b.WriteString(headerStyle.Render("  1 Dashboard"))
+	// Header
+	b.WriteString(headerStyle.Render("Dashboard"))
 	b.WriteString("\n\n")
 
-	// Active sprint ribbon
+	// Stat cards
+	totalTasks := len(s.backlog.AllTasks)
+	doneCount := 0
+	for _, t := range s.backlog.AllTasks {
+		if t.Status == model.StatusDone {
+			doneCount++
+		}
+	}
+	sprintCount := len(s.backlog.Current.Sprints)
+	epicCount := len(s.backlog.AllEpics)
+
+	cardGap := 1
+	numCards := 4
+	cardWidth := (contentWidth - (numCards-1)*cardGap) / numCards
+
+	cardBase := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(colorBorder).
+		Background(colorSurface).
+		Padding(0, 1).
+		Width(cardWidth)
+
+	makeCard := func(label string, value int) string {
+		content := fmt.Sprintf("%s\n%s",
+			lipgloss.NewStyle().Foreground(colorTextDim).Render(label),
+			lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Render(fmt.Sprintf("%3d", value)),
+		)
+		return cardBase.Render(content)
+	}
+
+	cards := []string{
+		makeCard("Tasks", totalTasks),
+		makeCard("Done", doneCount),
+		makeCard("Sprints", sprintCount),
+		makeCard("Epics", epicCount),
+	}
+	b.WriteString(strings.Join(cards, " "))
+	b.WriteString("\n\n")
+
+	// Sprint card
 	if len(s.backlog.Current.Sprints) > 0 {
 		sp := s.backlog.Current.Sprints[0]
 		sp.Tasks = s.backlog.TasksBySprint(sp.Name)
 		total := sp.TotalPoints()
 		done := sp.CompletedPoints()
-		barW := s.barWidth()
-		bar := progressBar(done, total, barW)
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(
-			fmt.Sprintf(" %s  %s", StatusBadge("in-progress"), sp.Name)))
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(
-			fmt.Sprintf("  %s", bar)))
+		var pct float64
+		if total > 0 {
+			pct = float64(done) / float64(total)
+		}
+
+		sprintCard := lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(colorBorder).
+			Background(colorSurface).
+			Padding(0, 1).
+			Width(contentWidth)
+
+		var sprintContent strings.Builder
+		sprintContent.WriteString(
+			lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render(sp.Name))
+		if sp.Goal != "" {
+			sprintContent.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" — " + sp.Goal))
+		}
+		sprintContent.WriteString("\n")
+
+		bar := s.prog.ViewAs(pct)
+		sprintContent.WriteString(fmt.Sprintf("%s  %d/%d (%d%%)", bar, done, total, int(pct*100)))
+
+		b.WriteString(sprintCard.Render(sprintContent.String()))
 		b.WriteString("\n\n")
 	}
 
-	s.printProjectCard(&b, s.backlog.Current, false)
-
-	for _, ext := range s.backlog.Externals {
-		s.printProjectCard(&b, ext, true)
-	}
-
-	// Health merged
-	s.printHealth(&b)
-
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render(" Watching for changes... live reload active"))
-
-	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	w := s.width - 2
-	if w < 40 {
-		w = 80
-	}
-	viewportH := s.height - 5
-	if viewportH < 10 {
-		viewportH = 10
-	}
-	if !s.ready || s.width > 0 {
-		s.viewport = viewport.New(w, viewportH)
-		s.viewport.SetContent(content)
-		s.ready = true
-	} else {
-		s.viewport.SetContent(content)
-	}
-	vpView := s.viewport.View()
-	sb := renderScrollbar(s.viewport, viewportH)
-	return addScrollbar(vpView, sb)
-}
-
-func (s *dashboardModel) printHealth(b *strings.Builder) {
+	// Health
 	report := s.backlog.CheckHealth()
-	barW := s.barWidth()
-
 	errCount := 0
 	warnCount := 0
 	infoCount := 0
@@ -110,43 +148,25 @@ func (s *dashboardModel) printHealth(b *strings.Builder) {
 		}
 	}
 
-	maxCount := errCount
-	if warnCount > maxCount {
-		maxCount = warnCount
-	}
-	if infoCount > maxCount {
-		maxCount = infoCount
-	}
-	if maxCount == 0 {
-		maxCount = 1
-	}
-
 	healthColor := colorSuccess
 	if errCount > 0 {
 		healthColor = colorError
 	} else if warnCount > 0 {
 		healthColor = colorWarning
 	}
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(healthColor).Bold(true).Render(" ● Health"))
-	b.WriteString("\n")
-
-	if len(report.Issues) == 0 {
-		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorSuccess).Render(" All clear"))
-		b.WriteString("\n\n")
-		return
-	}
-
-	drawBar := func(label string, count int, color lipgloss.Color) {
-		f := count * barW / maxCount
-		if f > barW {
-			f = barW
+	b.WriteString(lipgloss.NewStyle().Foreground(healthColor).Render("● Health"))
+	if errCount > 0 || warnCount > 0 {
+		parts := []string{}
+		if errCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d errors", errCount))
 		}
-		bar := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Render(fmt.Sprintf("%s  %-10s %s  %d", statusDot(label), label, bar, count)))
-		b.WriteString("\n")
+		if warnCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d warnings", warnCount))
+		}
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
+			"  (" + strings.Join(parts, ", ") + ")"))
 	}
-	drawBar("errors", errCount, colorError)
-	drawBar("warnings", warnCount, colorWarning)
+	b.WriteString("\n")
 
 	for _, issue := range report.Issues {
 		var icon string
@@ -166,74 +186,62 @@ func (s *dashboardModel) printHealth(b *strings.Builder) {
 		if issue.TaskID != "" {
 			msg += fmt.Sprintf(" [%s]", issue.TaskID)
 		}
-		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(sevColor).Render(msg))
+		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(sevColor).Render(msg))
 		b.WriteString("\n")
 	}
 
-	counts := s.backlog.StatusCounts("")
-	totalTasks := 0
-	for _, c := range counts {
-		totalTasks += c
-	}
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Padding(0, 3).Foreground(colorTextDim).Render(
-		fmt.Sprintf("tasks: %d | epics: %d | sprints: %d | projects: %d",
-			totalTasks, len(s.backlog.AllEpics), len(s.backlog.Current.Sprints), 1+len(s.backlog.Externals))))
-	b.WriteString("\n")
-}
-
-func (s *dashboardModel) barWidth() int {
-	w := s.width - 24
-	if w < 8 {
-		return 8
-	}
-	if w > 30 {
-		return 30
-	}
-	return w
-}
-
-func (s *dashboardModel) printProjectCard(b *strings.Builder, snap *model.ProjectSnapshot, external bool) {
-	counts := s.backlog.StatusCounts(snap.Config.ProjectID)
-	title := snap.Config.ProjectID
-	if external {
-		title += " " + ExternalBadge()
-	}
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render(title))
 	b.WriteString("\n")
 
-	barW := s.barWidth()
-	statusOrder := []struct {
-		label  string
-		status model.Status
-		color  lipgloss.Color
-	}{
-		{"todo", model.StatusTodo, colorInfo},
-		{"in-progress", model.StatusInProgress, colorWarning},
-		{"review", model.StatusReview, colorPrimary},
-		{"on-hold", model.StatusOnHold, colorTextDim},
-		{"done", model.StatusDone, colorSuccess},
-		{"cancelled", model.StatusCancelled, colorError},
+	// Project list
+	projects := []*model.ProjectSnapshot{}
+	if s.backlog.Current != nil {
+		projects = append(projects, s.backlog.Current)
 	}
-	for _, st := range statusOrder {
-		n := counts[st.status]
-		if n == 0 {
-			continue
+	projects = append(projects, s.backlog.Externals...)
+	for i, snap := range projects {
+		counts := s.backlog.StatusCounts(snap.Config.ProjectID)
+		total := 0
+		for _, c := range counts {
+			total += c
 		}
-		f := n
-		if f > barW {
-			f = barW
+		done := counts[model.StatusDone]
+		inProg := counts[model.StatusInProgress]
+
+		line := fmt.Sprintf("%s    %d tasks    %d done    %d in-progress",
+			snap.Config.ProjectID, total, done, inProg)
+		if i > 0 {
+			line += " " + ExternalBadge()
 		}
-		g := statusDot(string(st.status))
-		bar := lipgloss.NewStyle().Foreground(st.color).Render(strings.Repeat("█", f) + strings.Repeat("░", barW-f))
-		b.WriteString(lipgloss.NewStyle().Padding(0, 3).Render(fmt.Sprintf("%s %-11s %s  %d", g, st.label, bar, n)))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(line))
 		b.WriteString("\n")
 	}
+
 	b.WriteString("\n")
+
+	// Viewport
+	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
+	w := s.width - 2
+	if w < 40 {
+		w = 80
+	}
+	viewportH := s.height - 5
+	if viewportH < 10 {
+		viewportH = 10
+	}
+	if !s.ready {
+		s.viewport = viewport.New(w, viewportH)
+		s.viewport.SetContent(content)
+		s.ready = true
+	} else {
+		s.viewport.SetContent(content)
+	}
+	vpView := s.viewport.View()
+	sb := renderScrollbar(s.viewport, viewportH)
+	return addScrollbar(vpView, sb)
 }
 
 func (s *dashboardModel) footerHint() string {
-	return " 2:tasks | 3:sprints | ::cmd | q:quit"
+	return " 2:tasks | 3:sprints | ::cmd | ?:help"
 }
 
 func (s *dashboardModel) footerPos() string { return "" }

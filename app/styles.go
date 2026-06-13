@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"math"
 	"strings"
 
@@ -184,32 +183,6 @@ func typeBadge(t string) string {
 		Bold(true).
 		Padding(0, 1).
 		Render(t)
-}
-
-func progressBar(filled, total int, width int) string {
-	if total <= 0 {
-		total = 1
-	}
-	if filled > total {
-		filled = total
-	}
-	ratio := float64(filled) / float64(total)
-	fillChars := int(ratio * float64(width))
-	if fillChars > width {
-		fillChars = width
-	}
-	var c lipgloss.Color
-	switch {
-	case ratio >= 0.9:
-		c = colorSuccess
-	case ratio >= 0.5:
-		c = colorWarning
-	default:
-		c = colorInfo
-	}
-	bar := strings.Repeat("█", fillChars) + strings.Repeat("░", width-fillChars)
-	colored := lipgloss.NewStyle().Foreground(c).Render(bar)
-	return fmt.Sprintf("%s %d/%d", colored, filled, total)
 }
 
 func ExternalBadge() string {
