@@ -104,7 +104,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.sidebar.SetHeight(msg.Height)
+		// Content area sits above footer (\n + one footer line)
+		contentH := msg.Height - 2
+		if contentH < 1 {
+			contentH = 1
+		}
+		m.sidebar.SetHeight(contentH)
 		if m.palette != nil {
 			m.palette.width = msg.Width
 			m.palette.height = msg.Height
@@ -114,6 +119,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if contentMsg.Width < 1 {
 			contentMsg.Width = 1
 		}
+		contentMsg.Height = contentH
 		for _, s := range m.screens {
 			if u, ok := s.(tea.Model); ok {
 				u.Update(contentMsg)
@@ -174,9 +180,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case msg.String() == "tab":
-			m.currentScreen = (m.currentScreen + 1) % 3
-			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
-			return m, nil
+			shouldCycle := true
+			if m.currentScreen == screenTaskList {
+				if tl, ok := m.screens[screenTaskList].(*taskListModel); ok && tl.DetailOpen() {
+					shouldCycle = false
+				}
+			}
+			if shouldCycle {
+				m.currentScreen = (m.currentScreen + 1) % 3
+				m.sidebar.SetActive(screenToSidebar(m.currentScreen))
+				return m, nil
+			}
 		}
 
 	case tea.MouseMsg:

@@ -24,7 +24,6 @@ type viewMode int
 
 const (
 	modeTree viewMode = iota
-	modeDetail
 	modeSearch
 	modeInlineFilter
 )
@@ -36,6 +35,9 @@ type taskListModel struct {
 	width       int
 	height      int
 	mode        viewMode
+
+	detailOpen     bool
+	detailFocused  bool
 
 	rows        []flatRow
 	visibleRows []flatRow
@@ -108,12 +110,9 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		s.hoverLine = -1
-		switch s.mode {
-		case modeTree:
-			return s.handleTreeKey(msg)
-		case modeDetail:
-			return s.handleDetailKey(msg)
-		}
+	if s.mode == modeTree {
+		return s.handleTreeKey(msg)
+	}
 
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
@@ -166,7 +165,6 @@ func (s *taskListModel) handleSearchUpdate(msg tea.Msg) (tea.Model, tea.Cmd) {
 			task := nav.Task
 			s.enterDetail(task)
 			s.searchRunning = false
-			s.mode = modeDetail
 			return s, nil
 		}
 		s.searchRunning = false
@@ -183,8 +181,8 @@ func (s *taskListModel) handleInlineFilterUpdate(msg tea.Msg) (tea.Model, tea.Cm
 		case "esc":
 			s.mode = modeTree
 			return s, nil
-	case "enter":
-		s.filterText = s.inlineInput.Value()
+		case "enter":
+			s.filterText = s.inlineInput.Value()
 		s.filterOn = s.filterText != ""
 		s.lastFilterText = s.filterText
 		s.addFilterHistory(s.filterText)
@@ -219,6 +217,79 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Jump hints active: route all keypresses to jump buffer
 	if s.jumpHints.active {
 		return s.handleJumpKey(msg)
+	}
+
+	// Detail-focused: route keys to detail panel
+	if s.detailFocused {
+		switch {
+		case key.Matches(msg, NormalKeys.Back):
+			s.detailFocused = false
+			return s, nil
+		case key.Matches(msg, NormalKeys.Up):
+			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
+				if s.detailView.relatedCursor > 0 {
+					s.detailView.relatedCursor--
+				}
+			} else if s.detailView != nil {
+				s.detailView.scrollOffset--
+				if s.detailView.scrollOffset < 0 {
+					s.detailView.scrollOffset = 0
+				}
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.Down):
+			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
+				if s.detailView.relatedCursor < len(s.detailView.relatedItems)-1 {
+					s.detailView.relatedCursor++
+				}
+			} else if s.detailView != nil {
+				s.detailView.scrollOffset++
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.HalfDown):
+			if s.detailView != nil {
+				s.detailView.scrollOffset += (s.height - 8) / 2
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.HalfUp):
+			if s.detailView != nil {
+				s.detailView.scrollOffset -= (s.height - 8) / 2
+				if s.detailView.scrollOffset < 0 {
+					s.detailView.scrollOffset = 0
+				}
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.OpenInEditor):
+			if s.detailView != nil && s.detailView.task != nil {
+				return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.Related):
+			if s.detailView != nil {
+				if s.detailView.state == detailRelated {
+					s.detailView.state = detailNormal
+					s.detailView.relatedItems = nil
+				} else {
+					s.detailView.resolveLinks()
+					s.detailView.state = detailRelated
+					s.detailView.relatedCursor = 0
+				}
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.Enter):
+			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
+				link := s.detailView.relatedItems[s.detailView.relatedCursor]
+				if link.Task != nil {
+					s.detailView.previewTask = link.Task
+					s.detailView.state = detailPreview
+				}
+			}
+			return s, nil
+		case key.Matches(msg, NormalKeys.SearchNext):
+			return s.handleSearchRepeat(1)
+		case key.Matches(msg, NormalKeys.SearchPrev):
+			return s.handleSearchRepeat(-1)
+		}
 	}
 
 	// Pending multi-key sequences
@@ -372,6 +443,21 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Back / cancel
 	case key.Matches(msg, NormalKeys.Back):
+		if s.detailOpen && s.detailView != nil {
+			if s.detailView.state == detailPreview {
+				s.detailView.state = detailRelated
+				s.detailView.previewTask = nil
+				return s, nil
+			}
+			if s.detailView.state == detailRelated {
+				s.detailView.state = detailNormal
+				s.detailView.relatedItems = nil
+				return s, nil
+			}
+			s.detailOpen = false
+			s.detailView = nil
+			return s, nil
+		}
 		if s.filterOn {
 			s.filterText = ""
 			s.filterOn = false
@@ -427,6 +513,19 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			task := s.visibleRows[s.cursor].task
 			s.enterDetail(task)
+		}
+		return s, nil
+
+	case key.Matches(msg, NormalKeys.OpenInEditor):
+		if s.detailOpen && s.detailView != nil {
+			return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
+		}
+		return s, nil
+
+	// Tab toggles focus between tree and detail
+	case msg.String() == "tab":
+		if s.detailOpen {
+			s.detailFocused = !s.detailFocused
 		}
 		return s, nil
 
@@ -524,13 +623,17 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Related items from list
 	case key.Matches(msg, NormalKeys.Related):
-		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
+		if s.detailOpen && s.detailView != nil {
+			s.detailView.resolveLinks()
+			s.detailView.state = detailRelated
+			s.detailView.relatedCursor = 0
+		} else if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			task := s.visibleRows[s.cursor].task
 			dv := newDetailView(s.backlog, task, s.width, s.height)
 			dv.state = detailRelated
 			dv.relatedCursor = 0
 			s.detailView = dv
-			s.mode = modeDetail
+			s.detailOpen = true
 		}
 		return s, nil
 	}
@@ -557,112 +660,18 @@ func (s *taskListModel) handleJumpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return s, nil
 }
 
-// --- Detail key handler ---
-
-func (s *taskListModel) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, NormalKeys.Back):
-		if s.detailView != nil {
-			if s.detailView.state == detailPreview {
-				s.detailView.state = detailRelated
-				s.detailView.previewTask = nil
-				return s, nil
-			}
-			if s.detailView.state == detailRelated {
-				s.detailView.state = detailNormal
-				s.detailView.relatedItems = nil
-				return s, nil
-			}
-		}
-		s.mode = modeTree
-		s.detailView = nil
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.Related):
-		if s.detailView != nil {
-			s.detailView.resolveLinks()
-			s.detailView.state = detailRelated
-			s.detailView.relatedCursor = 0
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.Enter):
-		if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
-			link := s.detailView.relatedItems[s.detailView.relatedCursor]
-			if link.Task != nil {
-				s.detailView.previewTask = link.Task
-				s.detailView.state = detailPreview
-			}
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.OpenInEditor):
-		if s.detailView != nil && s.detailView.task != nil {
-			return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.SearchNext):
-		return s.handleSearchRepeat(1)
-
-	case key.Matches(msg, NormalKeys.SearchPrev):
-		return s.handleSearchRepeat(-1)
-
-	case key.Matches(msg, NormalKeys.BlockUp):
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.BlockDown):
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.Up):
-		if s.detailView != nil && s.detailView.subtaskFocus && len(s.detailView.subtaskTasks) > 0 {
-			if s.detailView.subtaskCursor > 0 {
-				s.detailView.subtaskCursor--
-			}
-		} else if s.detailView != nil && s.detailView.state == detailRelated {
-			if s.detailView.relatedCursor > 0 {
-				s.detailView.relatedCursor--
-			}
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.Down):
-		if s.detailView != nil && s.detailView.subtaskFocus && len(s.detailView.subtaskTasks) > 0 {
-			if s.detailView.subtaskCursor < len(s.detailView.subtaskTasks)-1 {
-				s.detailView.subtaskCursor++
-			}
-		} else if s.detailView != nil && s.detailView.state == detailRelated {
-			if s.detailView.relatedCursor < len(s.detailView.relatedItems)-1 {
-				s.detailView.relatedCursor++
-			}
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.HalfDown):
-		if s.detailView != nil {
-			s.detailView.scrollOffset += (s.height - 8) / 2
-		}
-		return s, nil
-
-	case key.Matches(msg, NormalKeys.HalfUp):
-		if s.detailView != nil {
-			s.detailView.scrollOffset -= (s.height - 8) / 2
-			if s.detailView.scrollOffset < 0 {
-				s.detailView.scrollOffset = 0
-			}
-		}
-		return s, nil
-	}
-	return s, nil
-}
-
 // --- Actions ---
+
+func (s *taskListModel) DetailOpen() bool {
+	return s.detailOpen
+}
 
 func (s *taskListModel) enterDetail(task *model.Task) {
 	dv := newDetailView(s.backlog, task, s.width, s.height)
 	dv.resolveLinks()
 	s.detailView = dv
-	s.mode = modeDetail
+	s.detailOpen = true
+	s.detailFocused = false
 }
 
 func (s *taskListModel) centerCursor() {
@@ -684,24 +693,49 @@ func (s *taskListModel) centerCursor() {
 
 func (s *taskListModel) View() string {
 	switch s.mode {
-	case modeDetail:
-		if s.detailView != nil {
-			return s.detailView.View()
-		}
-		return ""
 	case modeSearch:
 		if s.searchRunning && s.searchModal != nil {
 			return s.searchModal.View()
 		}
 		return ""
-	case modeInlineFilter:
-		return s.renderTreeFull()
 	default:
-		return s.renderTreeFull()
+		return s.renderSplitView()
 	}
 }
 
-func (s *taskListModel) renderTreeFull() string {
+func (s *taskListModel) renderSplitView() string {
+	treeW := (s.width * 40) / 100
+	if treeW < 30 {
+		treeW = 30
+	}
+	detailW := s.width - treeW
+
+	treeContent := s.renderTreeFullWithWidth(treeW)
+
+	if s.detailOpen && s.detailView != nil {
+		s.detailView.width = detailW
+		s.detailView.height = s.height
+		return lipgloss.JoinHorizontal(lipgloss.Top, treeContent, s.detailView.View())
+	}
+
+	sep := lipgloss.NewStyle().
+		Border(lipgloss.Border{Left: "│"}, false, false, false, true).
+		BorderForeground(colorBorder).
+		Render(s.renderDetailPlaceholder(detailW, s.height))
+	return lipgloss.JoinHorizontal(lipgloss.Top, treeContent, sep)
+}
+
+func (s *taskListModel) renderDetailPlaceholder(w, h int) string {
+	ph := lipgloss.NewStyle().
+		Width(w - 2).
+		Height(h - 2).
+		Foreground(colorTextDim).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render("Select a task to view details")
+	return ph
+}
+
+func (s *taskListModel) renderTreeFullWithWidth(w int) string {
 	var b strings.Builder
 
 	if s.mode == modeInlineFilter {
@@ -724,11 +758,12 @@ func (s *taskListModel) renderTreeFull() string {
 		treeH = 5
 	}
 
+	vpW := w - 3
 	if !s.treeReady {
-		s.treeViewport = viewport.New(s.width-3, treeH)
+		s.treeViewport = viewport.New(vpW, treeH)
 		s.treeReady = true
 	}
-	s.treeViewport.Width = s.width - 3
+	s.treeViewport.Width = vpW
 	s.treeViewport.Height = treeH
 	s.treeViewport.SetContent(content)
 
@@ -857,16 +892,19 @@ func (s *taskListModel) footerPos() string {
 }
 
 func (s *taskListModel) footerHint() string {
-	if s.mode == modeDetail && s.detailView != nil {
-		if s.detailView.state == detailRelated {
+	if s.detailFocused {
+		if s.detailView != nil && s.detailView.state == detailRelated {
 			return " j/k:navigate | Enter:preview | Esc:back"
 		}
-		if s.detailView.state == detailPreview {
+		if s.detailView != nil && s.detailView.state == detailPreview {
 			return " Esc:back"
 		}
-		return " j/k:scroll | o:open | r:links | C-d/u:scroll | Esc:back"
+		return " j/k:scroll | o:open | r:links | C-d/u:scroll | Esc:focus tree"
 	}
-	return " j/k:move | Enter:view | /:filter | ::cmd | ?:help"
+	if s.detailOpen {
+		return " Enter:select | Tab:focus detail | /:filter | ?:help"
+	}
+	return " j/k:move | Enter:open | /:filter | ::cmd | ?:help"
 }
 
 // --- Tree building ---

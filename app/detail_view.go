@@ -237,9 +237,8 @@ func (d *detailView) renderMain() string {
 	// Footer help
 	b.WriteString("\n")
 	scrollPct := ""
-	if d.scrollOffset > 0 {
-		// Estimate scroll percentage from offset
-		pct := d.scrollOffset * 100 / 200
+	if d.view.TotalLineCount() > d.view.Height {
+		pct := int(d.view.ScrollPercent() * 100)
 		if pct > 99 {
 			pct = 99
 		}
