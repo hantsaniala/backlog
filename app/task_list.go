@@ -37,7 +37,6 @@ type taskListModel struct {
 	mode        viewMode
 
 	detailOpen     bool
-	detailFocused  bool
 
 	rows        []flatRow
 	visibleRows []flatRow
@@ -133,15 +132,15 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.rebuild()
 
 	case tea.MouseMsg:
-		// Detail-focused: mouse wheel scrolls detail viewport
-		if s.detailFocused && s.detailView != nil {
+		// Detail mouse wheel scroll
+		if s.detailOpen && s.detailView != nil {
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonWheelUp {
 				s.detailView.view.LineUp(3)
 			}
 			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonWheelDown {
 				s.detailView.view.LineDown(3)
 			}
-			return s, nil
+			// Still fall through to tree hover logic
 		}
 
 		// Hover: convert terminal coords to tree-relative.
@@ -230,70 +229,34 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return s.handleJumpKey(msg)
 	}
 
-	// Detail-focused: route keys to detail panel
-	if s.detailFocused {
+	// Detail state shortcut routing
+	if s.detailOpen && s.detailView != nil {
 		switch {
-		case key.Matches(msg, NormalKeys.Back):
-			s.detailFocused = false
-			return s, nil
-		case key.Matches(msg, NormalKeys.Up):
-			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
-				if s.detailView.relatedCursor > 0 {
-					s.detailView.relatedCursor--
-				}
-			} else if s.detailView != nil {
-				s.detailView.view.LineUp(1)
-			}
-			return s, nil
-		case key.Matches(msg, NormalKeys.Down):
-			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
-				if s.detailView.relatedCursor < len(s.detailView.relatedItems)-1 {
-					s.detailView.relatedCursor++
-				}
-			} else if s.detailView != nil {
-				s.detailView.view.LineDown(1)
-			}
-			return s, nil
-		case key.Matches(msg, NormalKeys.HalfDown):
-			if s.detailView != nil {
-				s.detailView.view.HalfViewDown()
-			}
-			return s, nil
-		case key.Matches(msg, NormalKeys.HalfUp):
-			if s.detailView != nil {
-				s.detailView.view.HalfViewUp()
-			}
-			return s, nil
-		case key.Matches(msg, NormalKeys.OpenInEditor):
-			if s.detailView != nil && s.detailView.task != nil {
-				return s, editorOpenCmd(s.detailView.task, s.editorCmd, s.backlogRoot)
-			}
-			return s, nil
 		case key.Matches(msg, NormalKeys.Related):
-			if s.detailView != nil {
-				if s.detailView.state == detailRelated {
-					s.detailView.state = detailNormal
-					s.detailView.relatedItems = nil
-				} else {
-					s.detailView.resolveLinks()
-					s.detailView.state = detailRelated
-					s.detailView.relatedCursor = 0
-				}
+			if s.detailView.state == detailRelated {
+				s.detailView.state = detailNormal
+				s.detailView.relatedItems = nil
+			} else {
+				s.detailView.resolveLinks()
+				s.detailView.state = detailRelated
+				s.detailView.relatedCursor = 0
 			}
 			return s, nil
 		case key.Matches(msg, NormalKeys.Enter):
-			if s.detailView != nil && s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
+			if s.detailView.state == detailRelated && len(s.detailView.relatedItems) > 0 {
 				link := s.detailView.relatedItems[s.detailView.relatedCursor]
 				if link.Task != nil {
 					s.detailView.previewTask = link.Task
 					s.detailView.state = detailPreview
 				}
+				return s, nil
 			}
+		case key.Matches(msg, NormalKeys.HalfDown):
+			s.detailView.view.HalfViewDown()
 			return s, nil
-		case key.Matches(msg, NormalKeys.SearchNext):
-			return s.handleSearchRepeat(1)
-		case key.Matches(msg, NormalKeys.SearchPrev):
-			return s.handleSearchRepeat(-1)
+		case key.Matches(msg, NormalKeys.HalfUp):
+			s.detailView.view.HalfViewUp()
+			return s, nil
 		}
 	}
 
@@ -527,13 +490,6 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	// Tab toggles focus between tree and detail
-	case msg.String() == "tab":
-		if s.detailOpen {
-			s.detailFocused = !s.detailFocused
-		}
-		return s, nil
-
 	// Filter / search
 	case key.Matches(msg, NormalKeys.Filter):
 		// If already filtered, pressing / again opens inline filter with history
@@ -676,7 +632,6 @@ func (s *taskListModel) enterDetail(task *model.Task) {
 	dv.resolveLinks()
 	s.detailView = dv
 	s.detailOpen = true
-	s.detailFocused = false
 }
 
 func (s *taskListModel) centerCursor() {
@@ -720,7 +675,7 @@ func (s *taskListModel) renderSplitView() string {
 	if s.detailOpen && s.detailView != nil {
 		s.detailView.width = detailW
 		s.detailView.height = s.height
-		s.detailView.focused = s.detailFocused
+		s.detailView.focused = true
 		return lipgloss.JoinHorizontal(lipgloss.Top, treeContent, s.detailView.View())
 	}
 
@@ -776,30 +731,6 @@ func (s *taskListModel) renderTreeFullWithWidth(w int) string {
 	vpView := s.treeViewport.View()
 	scrollbarStr := renderScrollbar(s.treeViewport, treeH)
 	b.WriteString(addScrollbar(vpView, scrollbarStr))
-
-	// Page indicator
-	totalItems := len(s.visibleRows)
-	pageNum := int(s.treeViewport.YOffset)/treeH + 1
-	totalPages := (totalItems + treeH - 1) / treeH
-	if totalPages < 1 {
-		totalPages = 1
-	}
-	pageStr := fmt.Sprintf("Page %d/%d  [ ] prev/next  ", pageNum, totalPages)
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(pageStr))
-
-	// Contextual info
-	b.WriteString("\n")
-	info := fmt.Sprintf("%d items | / search | j/k nav | h/l expand | enter detail | Esc back | q quit",
-		totalItems)
-	if s.filterOn {
-		info = fmt.Sprintf("🔍 %q (%d) ", s.filterText, totalItems) +
-			" | " + info
-	}
-	if s.jumpHints.active {
-		info += s.jumpHints.bufferDisplay()
-	}
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Padding(0, 2).Render(info))
 
 	return b.String()
 }
@@ -898,19 +829,29 @@ func (s *taskListModel) footerPos() string {
 }
 
 func (s *taskListModel) footerHint() string {
-	if s.detailFocused {
+	if s.detailOpen {
 		if s.detailView != nil && s.detailView.state == detailRelated {
 			return " j/k:navigate | Enter:preview | Esc:back"
 		}
 		if s.detailView != nil && s.detailView.state == detailPreview {
 			return " Esc:back"
 		}
-		return " j/k:scroll | o:open | r:links | C-d/u:scroll | Esc:focus tree"
+		return " o:open | r:links | C-d/u:scroll | Esc:close | Tab:nav"
 	}
-	if s.detailOpen {
-		return " Enter:select | Tab:focus detail | /:filter | ?:help"
+	pageInfo := ""
+	if len(s.visibleRows) > 0 && s.treeReady {
+		treeH := s.height - 8
+		if s.filterOn {
+			treeH = s.height - 9
+		}
+		if treeH < 1 {
+			treeH = 1
+		}
+		pageNum := int(s.treeViewport.YOffset)/treeH + 1
+		totalPages := (len(s.visibleRows) + treeH - 1) / treeH
+		pageInfo = fmt.Sprintf(" %d items | Page %d/%d |", len(s.visibleRows), pageNum, totalPages)
 	}
-	return " j/k:move | Enter:open | /:filter | ::cmd | ?:help"
+	return fmt.Sprintf("%s j/k:move | Enter:open | /:filter | ::cmd | ?:help | Tab:nav", pageInfo)
 }
 
 // --- Tree building ---

@@ -35,7 +35,6 @@ type Model struct {
 	width         int
 	height        int
 	reloading     bool
-	sidebar       *sidebarModel
 
 	inputMode InputMode
 
@@ -72,7 +71,6 @@ func New(b *model.Backlog, cfg *config.Config) *Model {
 		inputMode:     ModeNormal,
 		helpModel:     newHelpModel(),
 		conf:          cfg,
-		sidebar:       newSidebar(),
 	}
 
 	m.screens[screenDashboard] = newScreenDashboard(b)
@@ -105,20 +103,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		// Content area sits above footer (\n + one footer line)
-		contentH := msg.Height - 2
+		contentH := msg.Height - 4
 		if contentH < 1 {
 			contentH = 1
 		}
-		m.sidebar.SetHeight(contentH)
 		if m.palette != nil {
 			m.palette.width = msg.Width
 			m.palette.height = msg.Height
 		}
 		contentMsg := msg
-		contentMsg.Width = msg.Width - sidebarWidth
-		if contentMsg.Width < 1 {
-			contentMsg.Width = 1
-		}
+		contentMsg.Width = msg.Width
 		contentMsg.Height = contentH
 		for _, s := range m.screens {
 			if u, ok := s.(tea.Model); ok {
@@ -169,28 +163,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.palette.Init()
 		case key.Matches(msg, NormalKeys.One):
 			m.currentScreen = screenDashboard
-			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case key.Matches(msg, NormalKeys.Two):
 			m.currentScreen = screenTaskList
-			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case key.Matches(msg, NormalKeys.Three):
 			m.currentScreen = screenSprintView
-			m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 			return m, nil
 		case msg.String() == "tab":
-			shouldCycle := true
-			if m.currentScreen == screenTaskList {
-				if tl, ok := m.screens[screenTaskList].(*taskListModel); ok && tl.DetailOpen() {
-					shouldCycle = false
-				}
-			}
-			if shouldCycle {
-				m.currentScreen = (m.currentScreen + 1) % 3
-				m.sidebar.SetActive(screenToSidebar(m.currentScreen))
-				return m, nil
-			}
+			m.currentScreen = (m.currentScreen + 1) % 3
+			return m, nil
 		}
 
 	case tea.MouseMsg:
@@ -265,13 +247,10 @@ func (m *Model) handlePaletteCommand(cmd string) {
 	switch {
 	case cmd == "focus dashboard":
 		m.currentScreen = screenDashboard
-		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "focus backlog":
 		m.currentScreen = screenTaskList
-		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "focus sprints":
 		m.currentScreen = screenSprintView
-		m.sidebar.SetActive(screenToSidebar(m.currentScreen))
 	case cmd == "git log":
 		if m.backlog != nil {
 			root := filepath.Dir(m.backlog.Current.Root)
@@ -303,14 +282,15 @@ func (m *Model) View() string {
 		return m.palette.View()
 	}
 
-	sidebarView := m.sidebar.View()
 	contentView := ""
 	if s, ok := m.screens[m.currentScreen]; ok {
 		contentView = s.View()
 	}
 
 	var b strings.Builder
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, sidebarView, contentView))
+	b.WriteString(m.renderTopBar())
+	b.WriteString("\n")
+	b.WriteString(contentView)
 	b.WriteString("\n")
 	b.WriteString(m.renderFooter())
 
@@ -327,6 +307,26 @@ func (m *Model) View() string {
 	}
 
 	return b.String()
+}
+
+func screenLabel(s screen) string {
+	switch s {
+	case screenDashboard:
+		return "Dashboard"
+	case screenTaskList:
+		return "Tasks"
+	case screenSprintView:
+		return "Sprints"
+	default:
+		return ""
+	}
+}
+
+func (m *Model) renderTopBar() string {
+	left := fmt.Sprintf("  backlog  —  %s", screenLabel(m.currentScreen))
+	return lipgloss.NewStyle().
+		Foreground(colorTextDim).
+		Render(left)
 }
 
 func (m *Model) renderFooter() string {
@@ -371,7 +371,7 @@ func (m *Model) renderFooter() string {
 func (m *Model) contextualHints() string {
 	switch m.inputMode {
 	case ModeNormal:
-		return " j/k:move | Enter:open | /:filter | ::cmd | Tab:nav | ?:help | q:quit"
+		return " Tab:nav | /:filter | ::cmd | ?:help | q:quit"
 	case ModeCommandPalette:
 		return " Type command | Enter:execute | Esc:cancel"
 	case ModeHelp:

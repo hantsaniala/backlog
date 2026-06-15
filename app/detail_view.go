@@ -127,24 +127,7 @@ func (d *detailView) renderMain() string {
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
 		fmt.Sprintf(" %s  %s", StatusBadge(string(d.task.Status)), typeBadge(string(d.task.Type)))))
-	b.WriteString("\n\n")
-
-	// Body: full-width rendered markdown with width constraint
-	if d.task.Body != "" {
-		rendered, err := glamour.Render(d.task.Body, "dark")
-		if err == nil {
-			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Render(rendered))
-		} else {
-			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Foreground(colorText).Render(d.task.Body))
-		}
-	} else {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" No description"))
-	}
-	b.WriteString("\n\n")
-
-	// Separator
-	sep := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", contentW))
-	b.WriteString(fmt.Sprintf("  %s\n", sep))
+	b.WriteString("\n")
 
 	// Inspector: compact inline fields
 	var fields []string
@@ -173,6 +156,24 @@ func (d *detailView) renderMain() string {
 			fmt.Sprintf("   Updated: %s", d.task.Updated)))
 	}
 	b.WriteString("\n")
+
+	// Separator
+	sep := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", contentW))
+	b.WriteString(fmt.Sprintf("  %s\n", sep))
+
+	// Body: full-width rendered markdown with width constraint
+	b.WriteString("\n")
+	if d.task.Body != "" {
+		rendered, err := glamour.Render(d.task.Body, "dark")
+		if err == nil {
+			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Render(rendered))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Foreground(colorText).Render(d.task.Body))
+		}
+	} else {
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" No description"))
+	}
+	b.WriteString("\n\n")
 
 	// Labels
 	if len(d.task.Labels) > 0 {
@@ -224,10 +225,6 @@ func (d *detailView) renderMain() string {
 			b.WriteString(fmt.Sprintf("  ▸ %s %s\n", g, link.Label))
 		}
 	}
-
-	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
-		" r:links  o:open  C-d/u:scroll  Esc:focus tree"))
 
 	content := lipgloss.NewStyle().Padding(0, 1).Render(b.String())
 	borderColor := colorBorder

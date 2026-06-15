@@ -60,7 +60,7 @@ func (s *dashboardModel) View() string {
 	b.WriteString(headerStyle.Render("Dashboard"))
 	b.WriteString("\n\n")
 
-	// Stat cards
+	// Stats
 	totalTasks := len(s.backlog.AllTasks)
 	doneCount := 0
 	for _, t := range s.backlog.AllTasks {
@@ -71,32 +71,15 @@ func (s *dashboardModel) View() string {
 	sprintCount := len(s.backlog.Current.Sprints)
 	epicCount := len(s.backlog.AllEpics)
 
-	cardGap := 1
-	numCards := 4
-	cardWidth := (contentWidth - (numCards-1)*cardGap) / numCards
-
-	cardBase := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		Background(colorSurface).
-		Padding(0, 1).
-		Width(cardWidth)
-
-	makeCard := func(label string, value int) string {
-		content := fmt.Sprintf("%s\n%s",
-			lipgloss.NewStyle().Foreground(colorTextDim).Render(label),
-			lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Render(fmt.Sprintf("%3d", value)),
-		)
-		return cardBase.Render(content)
+	dim := lipgloss.NewStyle().Foreground(colorTextDim)
+	bright := lipgloss.NewStyle().Foreground(colorTextBright).Bold(true)
+	stats := []string{
+		dim.Render("Tasks") + ": " + bright.Render(fmt.Sprintf("%d", totalTasks)),
+		dim.Render("Done") + ": " + bright.Render(fmt.Sprintf("%d", doneCount)),
+		dim.Render("Sprints") + ": " + bright.Render(fmt.Sprintf("%d", sprintCount)),
+		dim.Render("Epics") + ": " + bright.Render(fmt.Sprintf("%d", epicCount)),
 	}
-
-	cards := []string{
-		makeCard("Tasks", totalTasks),
-		makeCard("Done", doneCount),
-		makeCard("Sprints", sprintCount),
-		makeCard("Epics", epicCount),
-	}
-	b.WriteString(strings.Join(cards, " "))
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(stats, "    ")))
 	b.WriteString("\n\n")
 
 	// Sprint card
