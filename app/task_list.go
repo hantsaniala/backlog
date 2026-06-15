@@ -675,7 +675,6 @@ func (s *taskListModel) renderSplitView() string {
 	if s.detailOpen && s.detailView != nil {
 		s.detailView.width = detailW
 		s.detailView.height = s.height
-		s.detailView.focused = true
 		return lipgloss.JoinHorizontal(lipgloss.Top, treeContent, s.detailView.View())
 	}
 
@@ -711,9 +710,9 @@ func (s *taskListModel) renderTreeFullWithWidth(w int) string {
 
 	// Main tree content
 	content := s.renderTree()
-	treeH := s.height - 8
-	if s.mode == modeInlineFilter || s.filterOn {
-		treeH = s.height - 9
+	treeH := s.height
+	if s.filterOn || s.mode == modeInlineFilter {
+		treeH = s.height - 1
 	}
 	if treeH < 5 {
 		treeH = 5
@@ -791,7 +790,8 @@ func (s *taskListModel) renderTree() string {
 		}
 		label = labelStyle.Render(label)
 
-		line := fmt.Sprintf(" %s%s%s %s %s%s", indent, expandSymbol, branchPrefix, g, label, sp)
+		t := typeDot(string(r.task.Type))
+		line := fmt.Sprintf(" %s%s%s%s %s %s%s", indent, expandSymbol, branchPrefix, t, g, label, sp)
 
 		if i == s.cursor {
 			line = leftBorderBar + focusedRowStyle.Render(line)
@@ -918,6 +918,21 @@ func (s *taskListModel) clampCursor() {
 	}
 	if s.cursor >= len(s.visibleRows) {
 		s.cursor = len(s.visibleRows) - 1
+	}
+	s.scrollCursorIntoView()
+}
+
+func (s *taskListModel) scrollCursorIntoView() {
+	if !s.treeReady || len(s.visibleRows) == 0 {
+		return
+	}
+	cursor := s.cursor
+	offset := int(s.treeViewport.YOffset)
+	height := s.treeViewport.Height
+	if cursor < offset {
+		s.treeViewport.YOffset = cursor
+	} else if cursor >= offset+height {
+		s.treeViewport.YOffset = cursor - height + 1
 	}
 }
 

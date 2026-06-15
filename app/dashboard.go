@@ -82,6 +82,28 @@ func (s *dashboardModel) View() string {
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(stats, "    ")))
 	b.WriteString("\n\n")
 
+	// Priority breakdown
+	prioColors := map[model.Priority]lipgloss.Color{
+		model.PriorityCritical: colorError,
+		model.PriorityHigh:     colorWarning,
+		model.PriorityMedium:   colorInfo,
+		model.PriorityLow:      colorTextDim,
+	}
+	prioOrder := []model.Priority{model.PriorityCritical, model.PriorityHigh, model.PriorityMedium, model.PriorityLow}
+	var prioParts []string
+	for _, p := range prioOrder {
+		count := 0
+		for _, t := range s.backlog.AllTasks {
+			if t.Priority == p {
+				count++
+			}
+		}
+		colored := lipgloss.NewStyle().Foreground(prioColors[p]).Render(string(p))
+		prioParts = append(prioParts, fmt.Sprintf("%s: %d", colored, count))
+	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(prioParts, "    ")))
+	b.WriteString("\n\n")
+
 	// Sprint card
 	if len(s.backlog.Current.Sprints) > 0 {
 		sp := s.backlog.Current.Sprints[0]

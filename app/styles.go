@@ -148,19 +148,28 @@ func priorityDot(priority string) string {
 
 func typeDot(t string) string {
 	var c lipgloss.Color
+	var g string
 	switch t {
 	case "bug":
 		c = colorError
+		g = "✖"
 	case "story":
-		c = colorPrimary
+		c = colorInfo
+		g = "▶"
 	case "spike":
 		c = colorWarning
+		g = "▲"
 	case "chore":
 		c = colorTextDim
+		g = "○"
+	case "epic":
+		c = colorAccent
+		g = "◆"
 	default:
-		c = colorPrimary
+		c = colorText
+		g = "●"
 	}
-	return lipgloss.NewStyle().Foreground(c).Render("●")
+	return lipgloss.NewStyle().Foreground(c).Render(g)
 }
 
 func typeBadge(t string) string {
@@ -183,6 +192,14 @@ func typeBadge(t string) string {
 		Bold(true).
 		Padding(0, 1).
 		Render(t)
+}
+
+func labelBadge(label string) string {
+	return lipgloss.NewStyle().
+		Foreground(colorText).
+		Background(colorSurface).
+		Padding(0, 1).
+		Render(label)
 }
 
 func ExternalBadge() string {
