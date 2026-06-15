@@ -120,7 +120,8 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.treeReady = false
 		s.inlineInput.Width = s.width - 20
 		if s.detailView != nil {
-			s.detailView.width = msg.Width
+			detailW := msg.Width - (msg.Width*40)/100
+			s.detailView.width = detailW
 			s.detailView.height = msg.Height
 		}
 		if s.searchModal != nil {
@@ -132,8 +133,18 @@ func (s *taskListModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.rebuild()
 
 	case tea.MouseMsg:
+		// Detail-focused: mouse wheel scrolls detail viewport
+		if s.detailFocused && s.detailView != nil {
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonWheelUp {
+				s.detailView.view.LineUp(3)
+			}
+			if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonWheelDown {
+				s.detailView.view.LineDown(3)
+			}
+			return s, nil
+		}
+
 		// Hover: convert terminal coords to tree-relative.
-		// Header = 2 lines. Tree starts at y=2.
 		treeY := msg.Y - 2
 		if treeY >= 0 && treeY < s.treeViewport.Height {
 			bufLine := treeY + int(s.treeViewport.YOffset)
@@ -231,10 +242,7 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					s.detailView.relatedCursor--
 				}
 			} else if s.detailView != nil {
-				s.detailView.scrollOffset--
-				if s.detailView.scrollOffset < 0 {
-					s.detailView.scrollOffset = 0
-				}
+				s.detailView.view.LineUp(1)
 			}
 			return s, nil
 		case key.Matches(msg, NormalKeys.Down):
@@ -243,20 +251,17 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					s.detailView.relatedCursor++
 				}
 			} else if s.detailView != nil {
-				s.detailView.scrollOffset++
+				s.detailView.view.LineDown(1)
 			}
 			return s, nil
 		case key.Matches(msg, NormalKeys.HalfDown):
 			if s.detailView != nil {
-				s.detailView.scrollOffset += (s.height - 8) / 2
+				s.detailView.view.HalfViewDown()
 			}
 			return s, nil
 		case key.Matches(msg, NormalKeys.HalfUp):
 			if s.detailView != nil {
-				s.detailView.scrollOffset -= (s.height - 8) / 2
-				if s.detailView.scrollOffset < 0 {
-					s.detailView.scrollOffset = 0
-				}
+				s.detailView.view.HalfViewUp()
 			}
 			return s, nil
 		case key.Matches(msg, NormalKeys.OpenInEditor):
@@ -715,6 +720,7 @@ func (s *taskListModel) renderSplitView() string {
 	if s.detailOpen && s.detailView != nil {
 		s.detailView.width = detailW
 		s.detailView.height = s.height
+		s.detailView.focused = s.detailFocused
 		return lipgloss.JoinHorizontal(lipgloss.Top, treeContent, s.detailView.View())
 	}
 

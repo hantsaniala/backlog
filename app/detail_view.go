@@ -27,22 +27,20 @@ type detailView struct {
 	state detailViewState
 
 	// Related items popup
-	relatedSection string
-	relatedCursor  int
-	relatedItems   []detailLink
+	relatedItems  []detailLink
+	relatedCursor int
 
 	// Preview popup (within related)
 	previewTask *model.Task
-
-	// Scroll tracking
-	scrollOffset int
 
 	// Viewport for scrollable content
 	view      viewport.Model
 	viewReady bool
 
-	// Sub-tasks checklist
-	subtaskFocus  bool
+	// Focus indicator
+	focused bool
+
+	// Sub-tasks
 	subtaskCursor int
 	subtaskTasks  []*model.Task
 }
@@ -114,78 +112,89 @@ func (d *detailView) View() string {
 
 func (d *detailView) renderMain() string {
 	var b strings.Builder
+	contentW := d.width - 6
 
-	// Header
+	// Header: dots + ID + summary
 	glyph := statusDot(string(d.task.Status))
 	tDot := typeDot(string(d.task.Type))
 	pDot := priorityDot(string(d.task.Priority))
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(
-		fmt.Sprintf(" %s %s  %s %s", glyph, tDot, d.task.ID, pDot)))
-	if d.task.Summary != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render("  " + d.task.Summary))
+	summary := d.task.Summary
+	if summary != "" {
+		summary = "  " + summary
 	}
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(
+		fmt.Sprintf(" %s%s%s %s%s", glyph, tDot, pDot, d.task.ID, summary)))
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
 		fmt.Sprintf(" %s  %s", StatusBadge(string(d.task.Status)), typeBadge(string(d.task.Type)))))
 	b.WriteString("\n\n")
 
-	// Two-column layout
-	colW := (d.width - 6) / 2
-	if colW < 30 {
-		colW = 30
-	}
-
-	// Left column: description + body
-	var left strings.Builder
+	// Body: full-width rendered markdown with width constraint
 	if d.task.Body != "" {
 		rendered, err := glamour.Render(d.task.Body, "dark")
 		if err == nil {
-			left.WriteString(lipgloss.NewStyle().Padding(0, 1).Render(rendered))
+			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Render(rendered))
 		} else {
-			left.WriteString(lipgloss.NewStyle().Padding(0, 1).Foreground(colorText).Render(d.task.Body))
+			b.WriteString(lipgloss.NewStyle().Width(contentW).Padding(0, 1).Foreground(colorText).Render(d.task.Body))
 		}
 	} else {
-		left.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" No description"))
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" No description"))
 	}
+	b.WriteString("\n\n")
 
-	// Right column: metadata
-	var right strings.Builder
-	right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(" Details"))
-	right.WriteString("\n")
-	right.WriteString(fieldLine("Assignee", d.task.Assignee))
-	right.WriteString(fieldLine("Reporter", d.task.Reporter))
-	right.WriteString(fieldLine("Priority", string(d.task.Priority)))
+	// Separator
+	sep := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", contentW))
+	b.WriteString(fmt.Sprintf("  %s\n", sep))
+
+	// Inspector: compact inline fields
+	var fields []string
+	addField := func(label, val string) {
+		if val == "" {
+			return
+		}
+		fields = append(fields, fmt.Sprintf("%s: %s", label, val))
+	}
+	addField("Assignee", d.task.Assignee)
+	addField("Priority", string(d.task.Priority))
 	if d.task.StoryPoints != nil {
-		right.WriteString(fieldLine("Points", fmt.Sprintf("%d", *d.task.StoryPoints)))
+		addField("Points", fmt.Sprintf("%d", *d.task.StoryPoints))
 	}
 	if d.task.Sprint != "" {
-		right.WriteString(fieldLine("Sprint", d.task.Sprint))
+		addField("Sprint", d.task.Sprint)
 	}
-	right.WriteString(fmt.Sprintf("  %s Created: %s\n", lipgloss.NewStyle().Foreground(colorTextDim).Render("┃"), d.task.Created))
-	right.WriteString(fmt.Sprintf("  %s Updated: %s\n", lipgloss.NewStyle().Foreground(colorTextDim).Render("┃"), d.task.Updated))
 
+	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Foreground(colorText).Render(
+		strings.Join(fields, "   ")))
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Padding(0, 1).Foreground(colorTextDim).Render(
+		fmt.Sprintf("Created: %s", d.task.Created)))
+	if d.task.Updated != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
+			fmt.Sprintf("   Updated: %s", d.task.Updated)))
+	}
+	b.WriteString("\n")
+
+	// Labels
 	if len(d.task.Labels) > 0 {
-		right.WriteString("\n")
-		right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(" Labels"))
-		right.WriteString("\n")
+		b.WriteString("\n")
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Padding(0, 1).Render("Labels"))
+		b.WriteString("\n")
 		for _, l := range d.task.Labels {
-			right.WriteString(fmt.Sprintf("  • %s\n", l))
+			b.WriteString(fmt.Sprintf("  • %s\n", l))
 		}
 	}
 
 	// Sub-tasks
 	if len(d.subtaskTasks) > 0 {
-		right.WriteString("\n")
-		title := " Sub-tasks"
-		if d.subtaskFocus {
-			title += " [focused]"
-		}
-		right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(title))
-		right.WriteString("\n")
+		b.WriteString("\n")
+		subSep := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", contentW))
+		b.WriteString(fmt.Sprintf("  %s\n", subSep))
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Padding(0, 1).Render("Sub-tasks"))
+		b.WriteString("\n")
 		for i, st := range d.subtaskTasks {
-			cb := "[ ]"
+			cb := "☐"
 			if st.Status == model.StatusDone || st.Status == model.StatusCancelled {
-				cb = "[x]"
+				cb = "☑"
 			}
 			assignee := ""
 			if st.Assignee != "" {
@@ -193,79 +202,52 @@ func (d *detailView) renderMain() string {
 			}
 			line := fmt.Sprintf("  %s %s %s%s", cb, st.ID, st.Summary, assignee)
 			if i == d.subtaskCursor {
-				if d.subtaskFocus {
-					line = lipgloss.NewStyle().Foreground(colorTextBright).Background(colorSurface).Render(" " + line)
-				} else {
-					line = lipgloss.NewStyle().Foreground(colorTextDim).Render(line)
-				}
+				line = lipgloss.NewStyle().Foreground(colorTextBright).Background(colorSurface).Render(" " + line)
 			}
-			right.WriteString(line)
-			right.WriteString("\n")
+			b.WriteString(line)
+			b.WriteString("\n")
 		}
 	}
 
 	// Links
 	if len(d.relatedItems) > 0 {
-		right.WriteString("\n")
-		right.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Render(" Links"))
-		right.WriteString("\n")
+		b.WriteString("\n")
+		linkSep := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", contentW))
+		b.WriteString(fmt.Sprintf("  %s\n", linkSep))
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextDim).Padding(0, 1).Render("Links"))
+		b.WriteString("\n")
 		for _, link := range d.relatedItems {
 			g := "◌"
 			if link.Task != nil {
 				g = statusDot(string(link.Task.Status))
 			}
-			right.WriteString(fmt.Sprintf("  ▸ %s %s\n", g, link.Label))
+			b.WriteString(fmt.Sprintf("  ▸ %s %s\n", g, link.Label))
 		}
 	}
 
-	leftCol := lipgloss.NewStyle().
-		Width(colW).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		Padding(0, 1).
-		Render(left.String())
-
-	rightCol := lipgloss.NewStyle().
-		Width(colW).
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(colorBorder).
-		Padding(0, 1).
-		Render(right.String())
-
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol))
-
-	// Footer help
 	b.WriteString("\n")
-	scrollPct := ""
-	if d.view.TotalLineCount() > d.view.Height {
-		pct := int(d.view.ScrollPercent() * 100)
-		if pct > 99 {
-			pct = 99
-		}
-		scrollPct = fmt.Sprintf(" %d%%", pct)
-	}
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
-		fmt.Sprintf(" r:related  C-d/u:scroll%s  Esc/q:back", scrollPct)))
+		" r:links  o:open  C-d/u:scroll  Esc:focus tree"))
 
-	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	detailStyle := lipgloss.NewStyle().
+	content := lipgloss.NewStyle().Padding(0, 1).Render(b.String())
+	borderColor := colorBorder
+	if d.focused {
+		borderColor = colorPrimary
+	}
+	wrapped := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorPrimary).
-		Padding(0, 1)
-
-	wrapped := detailStyle.Render(content)
+		BorderForeground(borderColor).
+		Padding(0, 1).
+		Render(content)
 
 	vpW := d.width - 4
-	vpH := d.height - 6
-	if vpH < 10 {
-		vpH = 10
+	vpH := d.height - 2
+	if vpH < 5 {
+		vpH = 5
 	}
 	if !d.viewReady || d.view.Width != vpW {
 		d.view = viewport.New(vpW, vpH)
 		d.viewReady = true
-	}
-	if d.scrollOffset > 0 {
-		d.view.YOffset = d.scrollOffset
 	}
 	d.view.SetContent(wrapped)
 	vpView := d.view.View()
@@ -300,7 +282,7 @@ func (d *detailView) renderRelatedPopup() string {
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" Enter: preview  |  Esc: back"))
 
-	popupW := d.width * 60 / 100
+	popupW := d.width
 	if popupW < 40 {
 		popupW = 40
 	}
@@ -312,7 +294,7 @@ func (d *detailView) renderRelatedPopup() string {
 		Background(colorSurface).
 		Render(b.String())
 
-	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, content)
+	return lipgloss.Place(d.width+40, d.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func (d *detailView) renderPreviewPopup() string {
@@ -333,7 +315,6 @@ func (d *detailView) renderPreviewPopup() string {
 	}
 	b.WriteString("\n\n")
 
-	// Fields
 	b.WriteString(fieldLine("Type", string(t.Type)))
 	b.WriteString(fieldLine("Priority", string(t.Priority)))
 	if t.Assignee != "" {
@@ -354,7 +335,7 @@ func (d *detailView) renderPreviewPopup() string {
 	b.WriteString("\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(" Esc: back"))
 
-	popupW := d.width * 60 / 100
+	popupW := d.width
 	if popupW < 40 {
 		popupW = 40
 	}
@@ -366,7 +347,7 @@ func (d *detailView) renderPreviewPopup() string {
 		Background(colorSurface).
 		Render(b.String())
 
-	return lipgloss.Place(d.width, d.height, lipgloss.Center, lipgloss.Center, content)
+	return lipgloss.Place(d.width+40, d.height, lipgloss.Center, lipgloss.Center, content)
 }
 
 func fieldLine(name, value string) string {
