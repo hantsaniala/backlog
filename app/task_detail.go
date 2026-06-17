@@ -10,8 +10,9 @@ import (
 )
 
 type detailLink struct {
-	Label string
-	Task  *model.Task
+	Label   string
+	Task    *model.Task
+	RelType string
 }
 
 func resolveDetailLinks(ids []string, backlog *model.Backlog) []detailLink {

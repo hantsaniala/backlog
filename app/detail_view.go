@@ -74,7 +74,7 @@ func (d *detailView) resolveLinks() {
 	if d.task == nil {
 		return
 	}
-	addLinks := func(ids []string) {
+	addLinks := func(ids []string, relType string) {
 		for _, id := range ids {
 			if id == "" {
 				continue
@@ -84,14 +84,14 @@ func (d *detailView) resolveLinks() {
 			if t != nil && t.Summary != "" {
 				label = id + " - " + t.Summary
 			}
-			d.relatedItems = append(d.relatedItems, detailLink{Label: label, Task: t})
+			d.relatedItems = append(d.relatedItems, detailLink{Label: label, Task: t, RelType: relType})
 		}
 	}
-	addLinks([]string{d.task.Parent})
-	addLinks([]string{d.task.Epic})
-	addLinks(d.task.DependsOn)
-	addLinks(d.task.Blocks)
-	addLinks(d.task.RelatedTo)
+	addLinks([]string{d.task.Parent}, "parent")
+	addLinks([]string{d.task.Epic}, "epic")
+	addLinks(d.task.DependsOn, "depends on")
+	addLinks(d.task.Blocks, "blocks")
+	addLinks(d.task.RelatedTo, "related to")
 }
 
 func (d *detailView) View() string {
@@ -218,7 +218,8 @@ func (d *detailView) renderMain() string {
 			if link.Task != nil {
 				g = statusDot(string(link.Task.Status))
 			}
-			bottomB.WriteString(fmt.Sprintf("  ▸ %s %s\n", g, link.Label))
+			rel := lipgloss.NewStyle().Foreground(colorTextDim).Render("[" + link.RelType + "]")
+			bottomB.WriteString(fmt.Sprintf("  %s %s %s\n", rel, g, link.Label))
 		}
 	}
 
@@ -257,7 +258,8 @@ func (d *detailView) renderRelatedPopup() string {
 		if link.Task != nil {
 			g = statusDot(string(link.Task.Status))
 		}
-		line := fmt.Sprintf(" %s %s", g, link.Label)
+		rel := lipgloss.NewStyle().Foreground(colorTextDim).Render("[" + link.RelType + "]")
+		line := fmt.Sprintf(" %s %s %s", rel, g, link.Label)
 		if i == d.relatedCursor {
 			line = lipgloss.NewStyle().
 				Foreground(colorTextBright).
