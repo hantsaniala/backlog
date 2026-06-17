@@ -128,7 +128,39 @@ func statusDot(status string) string {
 	if !ok {
 		c = colorTextDim
 	}
-	return lipgloss.NewStyle().Foreground(c).Render("●")
+	var g string
+	switch status {
+	case "todo":
+		g = "□"
+	case "in-progress":
+		g = "■"
+	case "review":
+		g = "▣"
+	case "on-hold":
+		g = "–"
+	case "done":
+		g = "✓"
+	case "cancelled":
+		g = "✗"
+	default:
+		g = "●"
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(g)
+}
+
+func priorityLabel(priority string) string {
+	var c lipgloss.Color
+	switch priority {
+	case "critical":
+		c = colorError
+	case "high":
+		c = colorWarning
+	case "medium":
+		c = colorInfo
+	default:
+		c = colorTextDim
+	}
+	return lipgloss.NewStyle().Foreground(c).Render(priority)
 }
 
 func priorityDot(priority string) string {
@@ -267,6 +299,24 @@ func newProgressBar(width int) progress.Model {
 		progress.WithoutPercentage(),
 		progress.WithWidth(width),
 	)
+}
+
+func renderTaskProgress(done, total int) string {
+	if total == 0 {
+		return ""
+	}
+	pct := float64(done) / float64(total)
+	w := 8
+	filled := int(pct * float64(w))
+	var bar strings.Builder
+	for i := 0; i < w; i++ {
+		if i < filled {
+			bar.WriteString("▓")
+		} else {
+			bar.WriteString("░")
+		}
+	}
+	return lipgloss.NewStyle().Foreground(colorSuccess).Render(bar.String())
 }
 
 // renderScrollbar returns a column of scrollbar characters for a viewport.
