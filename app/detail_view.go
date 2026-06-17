@@ -114,15 +114,12 @@ func (d *detailView) renderMain() string {
 	// Top: metadata (sticky, never scrolls)
 	var topB strings.Builder
 
-	glyph := statusDot(string(d.task.Status))
-	tDot := typeDot(string(d.task.Type))
-	pDot := priorityDot(string(d.task.Priority))
 	summary := d.task.Summary
 	if summary != "" {
 		summary = "  " + summary
 	}
 	topB.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorTextBright).Render(
-		fmt.Sprintf(" %s%s%s %s%s", glyph, tDot, pDot, d.task.ID, summary)))
+		fmt.Sprintf(" %s%s", d.task.ID, summary)))
 	topB.WriteString("\n")
 	topB.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
 		fmt.Sprintf(" %s  %s", StatusBadge(string(d.task.Status)), typeBadge(string(d.task.Type)))))
@@ -136,7 +133,7 @@ func (d *detailView) renderMain() string {
 		fields = append(fields, fmt.Sprintf("%s: %s", label, val))
 	}
 	addField("Assignee", d.task.Assignee)
-	addField("Priority", string(d.task.Priority))
+	addField("Priority", priorityLabel(string(d.task.Priority)))
 	if d.task.StoryPoints != nil {
 		addField("Points", fmt.Sprintf("%d", *d.task.StoryPoints))
 	}
@@ -310,7 +307,7 @@ func (d *detailView) renderPreviewPopup() string {
 	b.WriteString("\n\n")
 
 	b.WriteString(fieldLine("Type", string(t.Type)))
-	b.WriteString(fieldLine("Priority", string(t.Priority)))
+		b.WriteString(fieldLine("Priority", priorityLabel(string(t.Priority))))
 	if t.Assignee != "" {
 		b.WriteString(fieldLine("Assignee", t.Assignee))
 	}
