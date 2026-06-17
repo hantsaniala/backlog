@@ -5,19 +5,16 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/hantsaniala/backlog/model"
 )
 
 type dashboardModel struct {
-	backlog  *model.Backlog
-	viewport viewport.Model
-	prog     progress.Model
-	ready    bool
-	width    int
-	height   int
+	backlog *model.Backlog
+	prog    progress.Model
+	width   int
+	height  int
 }
 
 func newScreenDashboard(b *model.Backlog) *dashboardModel {
@@ -30,12 +27,10 @@ func newScreenDashboard(b *model.Backlog) *dashboardModel {
 func (s *dashboardModel) Init() tea.Cmd { return nil }
 
 func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		s.width = msg.Width
 		s.height = msg.Height
-		s.ready = false
 		contentWidth := s.width - 2
 		barW := contentWidth - 8
 		if barW < 10 {
@@ -45,8 +40,7 @@ func (s *dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reloadMsg:
 		s.refresh()
 	}
-	s.viewport, cmd = s.viewport.Update(msg)
-	return s, cmd
+	return s, nil
 }
 
 func (s *dashboardModel) View() string {
@@ -56,30 +50,58 @@ func (s *dashboardModel) View() string {
 		contentWidth = 80
 	}
 
-	// Header
+	dim := lipgloss.NewStyle().Foreground(colorTextDim)
+	bright := lipgloss.NewStyle().Foreground(colorTextBright).Bold(true)
+
 	b.WriteString(headerStyle.Render("Dashboard"))
 	b.WriteString("\n\n")
 
-	// Stats
+	// Stats line
 	totalTasks := len(s.backlog.AllTasks)
 	doneCount := 0
+	wipCount := 0
 	for _, t := range s.backlog.AllTasks {
 		if t.Status == model.StatusDone {
 			doneCount++
+		}
+		if t.Status == model.StatusInProgress {
+			wipCount++
 		}
 	}
 	sprintCount := len(s.backlog.Current.Sprints)
 	epicCount := len(s.backlog.AllEpics)
 
-	dim := lipgloss.NewStyle().Foreground(colorTextDim)
-	bright := lipgloss.NewStyle().Foreground(colorTextBright).Bold(true)
 	stats := []string{
 		dim.Render("Tasks") + ": " + bright.Render(fmt.Sprintf("%d", totalTasks)),
 		dim.Render("Done") + ": " + bright.Render(fmt.Sprintf("%d", doneCount)),
+		dim.Render("WIP") + ": " + bright.Render(fmt.Sprintf("%d", wipCount)),
 		dim.Render("Sprints") + ": " + bright.Render(fmt.Sprintf("%d", sprintCount)),
 		dim.Render("Epics") + ": " + bright.Render(fmt.Sprintf("%d", epicCount)),
 	}
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(stats, "    ")))
+	b.WriteString("\n\n")
+
+	// Status breakdown
+	statusColors := map[model.Status]lipgloss.Color{
+		model.StatusTodo:       colorInfo,
+		model.StatusInProgress: colorWarning,
+		model.StatusReview:     colorPrimary,
+		model.StatusOnHold:     colorTextDim,
+		model.StatusDone:       colorSuccess,
+		model.StatusCancelled:  colorError,
+	}
+	statusOrder := []model.Status{
+		model.StatusTodo, model.StatusInProgress, model.StatusReview,
+		model.StatusOnHold, model.StatusDone, model.StatusCancelled,
+	}
+	counts := s.backlog.StatusCounts("")
+	var statusParts []string
+	for _, st := range statusOrder {
+		c := statusColors[st]
+		label := lipgloss.NewStyle().Foreground(c).Render(string(st))
+		statusParts = append(statusParts, fmt.Sprintf("%s: %d", label, counts[st]))
+	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(statusParts, "    ")))
 	b.WriteString("\n\n")
 
 	// Priority breakdown
@@ -102,6 +124,38 @@ func (s *dashboardModel) View() string {
 		prioParts = append(prioParts, fmt.Sprintf("%s: %d", colored, count))
 	}
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(prioParts, "    ")))
+	b.WriteString("\n\n")
+
+	// Type breakdown
+	typeOrder := []model.TaskType{model.TypeBug, model.TypeStory, model.TypeTask, model.TypeSpike, model.TypeChore}
+	typeColors := map[model.TaskType]lipgloss.Color{
+		model.TypeBug:   colorError,
+		model.TypeStory: colorPrimary,
+		model.TypeTask:  colorText,
+		model.TypeSpike: colorWarning,
+		model.TypeChore: colorTextDim,
+	}
+	typeGlyphs := map[model.TaskType]string{
+		model.TypeBug:   "✖",
+		model.TypeStory: "▶",
+		model.TypeTask:  "●",
+		model.TypeSpike: "▲",
+		model.TypeChore: "○",
+	}
+	var typeParts []string
+	for _, tp := range typeOrder {
+		count := 0
+		for _, t := range s.backlog.AllTasks {
+			if t.Type == tp {
+				count++
+			}
+		}
+		g := typeGlyphs[tp]
+		c := typeColors[tp]
+		label := lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%s %s", g, string(tp)))
+		typeParts = append(typeParts, fmt.Sprintf("%s: %d", label, count))
+	}
+	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(typeParts, "    ")))
 	b.WriteString("\n\n")
 
 	// Sprint card
@@ -131,7 +185,7 @@ func (s *dashboardModel) View() string {
 		sprintContent.WriteString("\n")
 
 		bar := s.prog.ViewAs(pct)
-		sprintContent.WriteString(fmt.Sprintf("%s  %d/%d (%d%%)", bar, done, total, int(pct*100)))
+		sprintContent.WriteString(fmt.Sprintf("%s  %d/%d (%.0f%%)", bar, done, total, pct*100))
 
 		b.WriteString(sprintCard.Render(sprintContent.String()))
 		b.WriteString("\n\n")
@@ -141,108 +195,55 @@ func (s *dashboardModel) View() string {
 	report := s.backlog.CheckHealth()
 	errCount := 0
 	warnCount := 0
-	infoCount := 0
 	for _, issue := range report.Issues {
 		switch issue.Severity {
 		case "error":
 			errCount++
 		case "warning":
 			warnCount++
-		default:
-			infoCount++
 		}
 	}
 
-	healthColor := colorSuccess
-	if errCount > 0 {
-		healthColor = colorError
-	} else if warnCount > 0 {
-		healthColor = colorWarning
-	}
-	b.WriteString(lipgloss.NewStyle().Foreground(healthColor).Render("● Health"))
-	if errCount > 0 || warnCount > 0 {
+	if errCount == 0 && warnCount == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(colorSuccess).Render("● Healthy"))
+	} else {
 		parts := []string{}
 		if errCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d errors", errCount))
+			parts = append(parts, lipgloss.NewStyle().Foreground(colorError).Render(fmt.Sprintf("%d errors", errCount)))
 		}
 		if warnCount > 0 {
-			parts = append(parts, fmt.Sprintf("%d warnings", warnCount))
+			parts = append(parts, lipgloss.NewStyle().Foreground(colorWarning).Render(fmt.Sprintf("%d warnings", warnCount)))
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(
-			"  (" + strings.Join(parts, ", ") + ")"))
-	}
-	b.WriteString("\n")
-
-	for _, issue := range report.Issues {
-		var icon string
-		var sevColor lipgloss.Color
-		switch issue.Severity {
-		case "error":
-			icon = "  ✖"
-			sevColor = colorError
-		case "warning":
-			icon = "  ⚠"
-			sevColor = colorWarning
-		default:
-			icon = "  ℹ"
-			sevColor = colorInfo
-		}
-		msg := fmt.Sprintf("%s %s", icon, issue.Message)
-		if issue.TaskID != "" {
-			msg += fmt.Sprintf(" [%s]", issue.TaskID)
-		}
-		b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(sevColor).Render(msg))
+		healthLine := lipgloss.NewStyle().Foreground(colorError).Render("● ") + strings.Join(parts, "  ")
+		b.WriteString(healthLine)
 		b.WriteString("\n")
+
+		for _, issue := range report.Issues {
+			var icon string
+			var sevColor lipgloss.Color
+			switch issue.Severity {
+			case "error":
+				icon = "  ✖"
+				sevColor = colorError
+			case "warning":
+				icon = "  ⚠"
+				sevColor = colorWarning
+			default:
+				continue
+			}
+			msg := fmt.Sprintf("%s %s", icon, issue.Message)
+			if issue.TaskID != "" {
+				msg += fmt.Sprintf(" [%s]", issue.TaskID)
+			}
+			b.WriteString(lipgloss.NewStyle().Padding(0, 2).Foreground(sevColor).Render(msg))
+			b.WriteString("\n")
+		}
 	}
 
 	b.WriteString("\n")
 
-	// Project list
-	projects := []*model.ProjectSnapshot{}
-	if s.backlog.Current != nil {
-		projects = append(projects, s.backlog.Current)
-	}
-	projects = append(projects, s.backlog.Externals...)
-	for i, snap := range projects {
-		counts := s.backlog.StatusCounts(snap.Config.ProjectID)
-		total := 0
-		for _, c := range counts {
-			total += c
-		}
-		done := counts[model.StatusDone]
-		inProg := counts[model.StatusInProgress]
-
-		line := fmt.Sprintf("%s    %d tasks    %d done    %d in-progress",
-			snap.Config.ProjectID, total, done, inProg)
-		if i > 0 {
-			line += " " + ExternalBadge()
-		}
-		b.WriteString(lipgloss.NewStyle().Foreground(colorTextDim).Render(line))
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\n")
-
-	// Viewport
 	content := lipgloss.NewStyle().Padding(0, 2).Render(b.String())
-	w := s.width - 2
-	if w < 40 {
-		w = 80
-	}
-	viewportH := s.height - 5
-	if viewportH < 10 {
-		viewportH = 10
-	}
-	if !s.ready {
-		s.viewport = viewport.New(w, viewportH)
-		s.viewport.SetContent(content)
-		s.ready = true
-	} else {
-		s.viewport.SetContent(content)
-	}
-	vpView := s.viewport.View()
-	sb := renderScrollbar(s.viewport, viewportH)
-	return addScrollbar(vpView, sb)
+	return content
 }
 
 func (s *dashboardModel) footerHint() string {
@@ -251,6 +252,4 @@ func (s *dashboardModel) footerHint() string {
 
 func (s *dashboardModel) footerPos() string { return "" }
 
-func (s *dashboardModel) refresh() {
-	s.ready = false
-}
+func (s *dashboardModel) refresh() {}
