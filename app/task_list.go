@@ -809,23 +809,42 @@ func (s *taskListModel) renderTree() string {
 			branchPrefix = "├─"
 		}
 
-		label := r.task.ID
-		if r.task.Summary != "" {
-			label = r.task.ID + "  " + r.task.Summary
+		// ID colored by priority
+		var idColor lipgloss.Color
+		switch r.task.Priority {
+		case model.PriorityCritical:
+			idColor = colorError
+		case model.PriorityHigh:
+			idColor = colorWarning
+		case model.PriorityMedium:
+			idColor = colorInfo
+		default:
+			idColor = colorTextDim
+		}
+		idStyled := lipgloss.NewStyle().Foreground(idColor).Render(r.task.ID)
+
+		// Summary colored by type
+		var summaryStyle lipgloss.Style
+		if r.task.Type == model.TypeEpic {
+			summaryStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
+		} else if r.task.Type == model.TypeStory {
+			summaryStyle = lipgloss.NewStyle().Foreground(colorPrimary)
+		} else {
+			summaryStyle = lipgloss.NewStyle().Foreground(colorText)
 		}
 
-		var labelStyle lipgloss.Style
-		if r.task.Type == model.TypeEpic {
-			labelStyle = lipgloss.NewStyle().Bold(true).Foreground(colorAccent)
-		} else if r.task.Type == model.TypeStory {
-			labelStyle = lipgloss.NewStyle().Foreground(colorPrimary)
-		} else {
-			labelStyle = lipgloss.NewStyle().Foreground(colorText)
+		label := idStyled
+		if r.task.Summary != "" {
+			label = idStyled + "  " + summaryStyle.Render(r.task.Summary)
 		}
-		label = labelStyle.Render(label)
 
 		t := typeDot(string(r.task.Type))
-		line := fmt.Sprintf(" %s%s%s%s %s %s%s", indent, expandSymbol, branchPrefix, t, g, label, sp)
+		line := fmt.Sprintf(" %s%s%s %s %s %s%s", indent, expandSymbol, branchPrefix, t, g, label, sp)
+
+		if done, total := s.childProgress(r.task); total > 0 {
+			bar := renderTaskProgress(done, total)
+			line += " " + bar
+		}
 
 		if i == s.cursor {
 			line = leftBorderBar + focusedRowStyle.Render(line)
