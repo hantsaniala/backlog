@@ -1148,8 +1148,89 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		}
 		return remaining[i].ID < remaining[j].ID
 	})
+
+	// Collect children for each remaining task
+	childMap := make(map[string][]*model.Task)
 	for _, t := range remaining {
+		for _, cid := range t.Children {
+			if cid == "" {
+				continue
+			}
+			for _, ct := range remaining {
+				if ct.ID == cid {
+					childMap[t.ID] = append(childMap[t.ID], ct)
+					break
+				}
+			}
+		}
+		// Also check backlinks via Parent
+		for _, ct := range remaining {
+			if ct.Parent == t.ID && ct.ID != t.ID {
+				already := false
+				for _, existing := range childMap[t.ID] {
+					if existing.ID == ct.ID {
+						already = true
+						break
+					}
+				}
+				if !already {
+					childMap[t.ID] = append(childMap[t.ID], ct)
+				}
+			}
+		}
+	}
+
+	renderedChildren := make(map[string]bool)
+	for _, t := range remaining {
+		if renderedChildren[t.ID] {
+			continue
+		}
+		// Skip if this task is a child of another task (rendered as nested)
+		isChildOfRemaining := false
+		for _, ct := range remaining {
+			if ct.ID == t.ID {
+				continue
+			}
+			for _, cid := range ct.Children {
+				if cid == t.ID {
+					isChildOfRemaining = true
+					break
+				}
+			}
+			if !isChildOfRemaining && ct.Parent == t.ID && ct.ID != t.ID {
+				// ct is parent of t — this means t is NOT a child of ct
+			}
+			if !isChildOfRemaining && t.Parent == ct.ID && t.ID != ct.ID {
+				isChildOfRemaining = true
+			}
+			if isChildOfRemaining {
+				break
+			}
+		}
+		if isChildOfRemaining {
+			continue
+		}
+
 		rows = append(rows, flatRow{task: t, prefix: "", level: 0, epicID: ""})
+		renderedChildren[t.ID] = true
+
+		children := childMap[t.ID]
+		sort.Slice(children, func(i, j int) bool {
+			di := children[i].Status == model.StatusDone
+			dj := children[j].Status == model.StatusDone
+			if di != dj {
+				return !di
+			}
+			return children[i].ID < children[j].ID
+		})
+		for ci, child := range children {
+			p := "├─"
+			if ci == len(children)-1 {
+				p = "└─"
+			}
+			rows = append(rows, flatRow{task: child, prefix: p, level: 1, epicID: ""})
+			renderedChildren[child.ID] = true
+		}
 	}
 
 	s.rows = rows
