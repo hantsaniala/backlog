@@ -1133,7 +1133,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 		}
 	}
 
-	// Remaining items
+	// Remaining items — build parent-child trees
 	var remaining []*model.Task
 	for _, t := range tasks {
 		if !seen[t.ID] {
