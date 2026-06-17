@@ -14,10 +14,11 @@ import (
 )
 
 type flatRow struct {
-	task   *model.Task
-	prefix string
-	level  int
-	epicID string // which epic owns this row; "" for root-level or orphan items
+	task     *model.Task
+	prefix   string
+	level    int
+	epicID   string // which epic owns this row; "" for root-level or orphan items
+	parentID string // direct parent task ID; "" for root-level items
 }
 
 type viewMode int
@@ -445,34 +446,28 @@ func (s *taskListModel) handleTreeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, NormalKeys.Left):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			r := s.visibleRows[s.cursor]
-			if r.task.Type == model.TypeEpic {
-				s.expanded[r.task.ID] = false
-				s.buildVisibleRows()
-				s.clampCursor()
-			}
+			s.expanded[r.task.ID] = false
+			s.buildVisibleRows()
+			s.clampCursor()
 		}
 		return s, nil
 
 	case key.Matches(msg, NormalKeys.Right):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			r := s.visibleRows[s.cursor]
-			if r.task.Type == model.TypeEpic {
-				s.expanded[r.task.ID] = true
-				s.buildVisibleRows()
-				s.clampCursor()
-			}
+			s.expanded[r.task.ID] = true
+			s.buildVisibleRows()
+			s.clampCursor()
 		}
 		return s, nil
 
 	case key.Matches(msg, NormalKeys.Expand):
 		if len(s.visibleRows) > 0 && s.cursor >= 0 && s.cursor < len(s.visibleRows) {
 			r := s.visibleRows[s.cursor]
-			if r.task.Type == model.TypeEpic {
-				oldVal := s.expanded[r.task.ID]
-				s.expanded[r.task.ID] = !oldVal
-				s.buildVisibleRows()
-				s.clampCursor()
-			}
+			oldVal := s.expanded[r.task.ID]
+			s.expanded[r.task.ID] = !oldVal
+			s.buildVisibleRows()
+			s.clampCursor()
 		}
 		return s, nil
 
@@ -662,6 +657,15 @@ func (s *taskListModel) childProgress(task *model.Task) (done, total int) {
 	return
 }
 
+func (s *taskListModel) hasChildren(id string) bool {
+	for _, r := range s.rows {
+		if r.parentID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *taskListModel) centerCursor() {
 	// Centers the viewport on the cursor by adjusting scroll position
 	half := (s.height - 8) / 2
@@ -788,7 +792,7 @@ func (s *taskListModel) renderTree() string {
 
 		// Expand indicator and branch prefix
 		expandSymbol := " "
-		if r.task.Type == model.TypeEpic {
+		if s.hasChildren(r.task.ID) {
 			if s.expanded[r.task.ID] {
 				expandSymbol = "▼"
 			} else {
@@ -1003,17 +1007,33 @@ func (s *taskListModel) rebuild() {
 func (s *taskListModel) buildVisibleRows() {
 	var out []flatRow
 	for _, r := range s.rows {
-		if r.task.Type == model.TypeEpic {
+		if r.level == 0 {
 			out = append(out, r)
-		} else if r.epicID == "" {
-			// Root-level item (orphan story/remaining task) — always show
-			out = append(out, r)
-		} else {
-			// Child item — show only if epic is expanded
-			expanded := s.expanded[r.epicID]
-			if expanded {
-				out = append(out, r)
+			continue
+		}
+		// Walk up parent chain — all ancestors must be expanded
+		visible := true
+		pid := r.parentID
+		for pid != "" {
+			if !s.expanded[pid] {
+				visible = false
+				break
 			}
+			// Find this parent's parentID by scanning rows
+			found := false
+			for _, pr := range s.rows {
+				if pr.task.ID == pid {
+					pid = pr.parentID
+					found = true
+					break
+				}
+			}
+			if !found {
+				break
+			}
+		}
+		if visible {
+			out = append(out, r)
 		}
 	}
 	s.visibleRows = out
@@ -1028,13 +1048,24 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 	// Epics first
 	for _, ep := range epics {
 		epTask := model.EpicToTask(ep)
-		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0, epicID: ""})
+		rows = append(rows, flatRow{task: epTask, prefix: "", level: 0, epicID: "", parentID: ""})
 		seen[epTask.ID] = true
 
 		var children []*model.Task
 		for _, t := range tasks {
 			if t.Epic == ep.ID && t.ID != ep.ID {
 				children = append(children, t)
+			}
+		}
+		for _, cid := range epTask.Children {
+			if cid == "" || seen[cid] {
+				continue
+			}
+			for _, t := range tasks {
+				if t.ID == cid && t.ID != ep.ID {
+					children = append(children, t)
+					break
+				}
 			}
 		}
 		sort.Slice(children, func(i, j int) bool {
@@ -1058,6 +1089,26 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 				for _, t := range children {
 					if t.Parent == child.ID && t.ID != child.ID {
 						gc = append(gc, t)
+					}
+				}
+				for _, cid := range child.Children {
+					if cid == "" {
+						continue
+					}
+					already := false
+					for _, g := range gc {
+						if g.ID == cid {
+							already = true
+							break
+						}
+					}
+					if !already {
+						for _, t := range children {
+							if t.ID == cid && t.ID != child.ID {
+								gc = append(gc, t)
+								break
+							}
+						}
 					}
 				}
 				sort.Slice(gc, func(i, j int) bool {
@@ -1084,7 +1135,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 				p = "└─"
 			}
 			seen[g.task.ID] = true
-			rows = append(rows, flatRow{task: g.task, prefix: p, level: 1, epicID: ep.ID})
+			rows = append(rows, flatRow{task: g.task, prefix: p, level: 1, epicID: ep.ID, parentID: ep.ID})
 
 			for ci, gc := range g.grandchildren {
 				gcPrefix := "├─"
@@ -1098,7 +1149,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 					gcPrefix = "  " + gcPrefix
 				}
 				seen[gc.ID] = true
-				rows = append(rows, flatRow{task: gc, prefix: gcPrefix, level: 2, epicID: ep.ID})
+				rows = append(rows, flatRow{task: gc, prefix: gcPrefix, level: 2, epicID: ep.ID, parentID: g.task.ID})
 			}
 		}
 	}
@@ -1107,11 +1158,31 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 	for _, t := range tasks {
 		if !seen[t.ID] && t.Type == model.TypeStory {
 			seen[t.ID] = true
-			rows = append(rows, flatRow{task: t, prefix: "├─", level: 1, epicID: ""})
+			rows = append(rows, flatRow{task: t, prefix: "├─", level: 1, epicID: "", parentID: ""})
 			var storyChildren []*model.Task
 			for _, child := range tasks {
 				if !seen[child.ID] && child.Parent == t.ID && child.ID != t.ID {
 					storyChildren = append(storyChildren, child)
+				}
+			}
+			for _, cid := range t.Children {
+				if cid == "" {
+					continue
+				}
+				already := false
+				for _, c := range storyChildren {
+					if c.ID == cid {
+						already = true
+						break
+					}
+				}
+				if !already {
+					for _, child := range tasks {
+						if !seen[child.ID] && child.ID == cid && child.ID != t.ID {
+							storyChildren = append(storyChildren, child)
+							break
+						}
+					}
 				}
 			}
 			sort.Slice(storyChildren, func(i, j int) bool {
@@ -1128,7 +1199,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 					gcPrefix = "└─"
 				}
 				seen[child.ID] = true
-				rows = append(rows, flatRow{task: child, prefix: gcPrefix, level: 2, epicID: ""})
+				rows = append(rows, flatRow{task: child, prefix: gcPrefix, level: 2, epicID: "", parentID: t.ID})
 			}
 		}
 	}
@@ -1211,7 +1282,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 			continue
 		}
 
-		rows = append(rows, flatRow{task: t, prefix: "", level: 0, epicID: ""})
+		rows = append(rows, flatRow{task: t, prefix: "", level: 0, epicID: "", parentID: ""})
 		renderedChildren[t.ID] = true
 
 		children := childMap[t.ID]
@@ -1228,7 +1299,7 @@ func (s *taskListModel) buildTree(tasks []*model.Task) {
 			if ci == len(children)-1 {
 				p = "└─"
 			}
-			rows = append(rows, flatRow{task: child, prefix: p, level: 1, epicID: ""})
+			rows = append(rows, flatRow{task: child, prefix: p, level: 1, epicID: "", parentID: t.ID})
 			renderedChildren[child.ID] = true
 		}
 	}
