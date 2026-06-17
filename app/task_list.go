@@ -845,7 +845,7 @@ func (s *taskListModel) renderTree() string {
 		t := typeDot(string(r.task.Type))
 		line := fmt.Sprintf(" %s%s%s %s %s %s%s", indent, expandSymbol, branchPrefix, t, g, label, sp)
 
-		if done, total := s.childProgress(r.task); total > 0 {
+		if done, total := s.childProgress(r.task); total > 0 && s.hasChildren(r.task.ID) {
 			bar := renderTaskProgress(done, total)
 			line += " " + bar
 		}
