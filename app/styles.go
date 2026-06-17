@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
@@ -317,6 +318,44 @@ func renderTaskProgress(done, total int) string {
 		}
 	}
 	return lipgloss.NewStyle().Foreground(colorSuccess).Render(bar.String())
+}
+
+func renderBarChart(label string, count, total, max, barWidth int, fillColor lipgloss.Color) string {
+	if barWidth < 2 {
+		barWidth = 2
+	}
+	paddedLabel := fmt.Sprintf("%-12s", label)
+
+	var pctStr string
+	if total > 0 {
+		pct := float64(count) * 100 / float64(total)
+		pctStr = fmt.Sprintf(" (%d%%)", int(pct))
+	} else {
+		pctStr = ""
+	}
+
+	filled := 0
+	if max > 0 {
+		filled = count * barWidth / max
+	}
+	if filled > barWidth {
+		filled = barWidth
+	}
+
+	var bar strings.Builder
+	for i := 0; i < barWidth; i++ {
+		if i < filled {
+			bar.WriteString("▓")
+		} else {
+			bar.WriteString("░")
+		}
+	}
+
+	barStr := lipgloss.NewStyle().Foreground(fillColor).Render(bar.String())
+	countStr := lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Render(fmt.Sprintf("%d", count))
+	pctDim := lipgloss.NewStyle().Foreground(colorTextDim).Render(pctStr)
+
+	return fmt.Sprintf("  %s %s %s%s", paddedLabel, barStr, countStr, pctDim)
 }
 
 // renderScrollbar returns a column of scrollbar characters for a viewport.

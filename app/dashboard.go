@@ -49,6 +49,10 @@ func (s *dashboardModel) View() string {
 	if contentWidth < 40 {
 		contentWidth = 80
 	}
+	barWidth := contentWidth - 22
+	if barWidth < 10 {
+		barWidth = 10
+	}
 
 	dim := lipgloss.NewStyle().Foreground(colorTextDim)
 	bright := lipgloss.NewStyle().Foreground(colorTextBright).Bold(true)
@@ -81,7 +85,7 @@ func (s *dashboardModel) View() string {
 	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(stats, "    ")))
 	b.WriteString("\n\n")
 
-	// Status breakdown
+	// Status bar chart
 	statusColors := map[model.Status]lipgloss.Color{
 		model.StatusTodo:       colorInfo,
 		model.StatusInProgress: colorWarning,
@@ -92,19 +96,29 @@ func (s *dashboardModel) View() string {
 	}
 	statusOrder := []model.Status{
 		model.StatusTodo, model.StatusInProgress, model.StatusReview,
-		model.StatusOnHold, model.StatusDone, model.StatusCancelled,
+		model.StatusDone, model.StatusCancelled,
 	}
 	counts := s.backlog.StatusCounts("")
-	var statusParts []string
+	statusMax := 0
+	for _, st := range statusOrder {
+		if counts[st] > statusMax {
+			statusMax = counts[st]
+		}
+	}
+
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Status"))
+	b.WriteString("\n")
 	for _, st := range statusOrder {
 		c := statusColors[st]
-		label := lipgloss.NewStyle().Foreground(c).Render(string(st))
-		statusParts = append(statusParts, fmt.Sprintf("%s: %d", label, counts[st]))
+		label := string(st)
+		if counts[st] > 0 || st == model.StatusTodo {
+			b.WriteString(renderBarChart(label, counts[st], totalTasks, statusMax, barWidth, c))
+			b.WriteString("\n")
+		}
 	}
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(statusParts, "    ")))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
-	// Priority breakdown
+	// Priority bar chart
 	prioColors := map[model.Priority]lipgloss.Color{
 		model.PriorityCritical: colorError,
 		model.PriorityHigh:     colorWarning,
@@ -112,7 +126,7 @@ func (s *dashboardModel) View() string {
 		model.PriorityLow:      colorTextDim,
 	}
 	prioOrder := []model.Priority{model.PriorityCritical, model.PriorityHigh, model.PriorityMedium, model.PriorityLow}
-	var prioParts []string
+	prioMax := 0
 	for _, p := range prioOrder {
 		count := 0
 		for _, t := range s.backlog.AllTasks {
@@ -120,13 +134,26 @@ func (s *dashboardModel) View() string {
 				count++
 			}
 		}
-		colored := lipgloss.NewStyle().Foreground(prioColors[p]).Render(string(p))
-		prioParts = append(prioParts, fmt.Sprintf("%s: %d", colored, count))
+		if count > prioMax {
+			prioMax = count
+		}
 	}
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(prioParts, "    ")))
-	b.WriteString("\n\n")
 
-	// Type breakdown
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Priority"))
+	b.WriteString("\n")
+	for _, p := range prioOrder {
+		count := 0
+		for _, t := range s.backlog.AllTasks {
+			if t.Priority == p {
+				count++
+			}
+		}
+		b.WriteString(renderBarChart(string(p), count, totalTasks, prioMax, barWidth, prioColors[p]))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+
+	// Type bar chart
 	typeOrder := []model.TaskType{model.TypeBug, model.TypeStory, model.TypeTask, model.TypeSpike, model.TypeChore}
 	typeColors := map[model.TaskType]lipgloss.Color{
 		model.TypeBug:   colorError,
@@ -142,7 +169,21 @@ func (s *dashboardModel) View() string {
 		model.TypeSpike: "▲",
 		model.TypeChore: "○",
 	}
-	var typeParts []string
+	typeMax := 0
+	for _, tp := range typeOrder {
+		count := 0
+		for _, t := range s.backlog.AllTasks {
+			if t.Type == tp {
+				count++
+			}
+		}
+		if count > typeMax {
+			typeMax = count
+		}
+	}
+
+	b.WriteString(lipgloss.NewStyle().Foreground(colorTextBright).Bold(true).Padding(0, 2).Render("Type"))
+	b.WriteString("\n")
 	for _, tp := range typeOrder {
 		count := 0
 		for _, t := range s.backlog.AllTasks {
@@ -151,12 +192,11 @@ func (s *dashboardModel) View() string {
 			}
 		}
 		g := typeGlyphs[tp]
-		c := typeColors[tp]
-		label := lipgloss.NewStyle().Foreground(c).Render(fmt.Sprintf("%s %s", g, string(tp)))
-		typeParts = append(typeParts, fmt.Sprintf("%s: %d", label, count))
+		label := fmt.Sprintf("%s %s", g, string(tp))
+		b.WriteString(renderBarChart(label, count, totalTasks, typeMax, barWidth, typeColors[tp]))
+		b.WriteString("\n")
 	}
-	b.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(strings.Join(typeParts, "    ")))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
 
 	// Sprint card
 	if len(s.backlog.Current.Sprints) > 0 {
