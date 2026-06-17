@@ -736,11 +736,17 @@ func (s *taskListModel) renderTreeFullWithWidth(w int) string {
 		b.WriteString("\n")
 	}
 
+	// Sticky header
+	headerLine := lipgloss.NewStyle().Padding(0, 2).Foreground(colorTextDim).Render("T S ID/Summary") + "\n"
+	headerUnderline := lipgloss.NewStyle().Foreground(colorTextDim).Render(strings.Repeat("─", w-4)) + "\n"
+	b.WriteString(headerLine)
+	b.WriteString(headerUnderline)
+
 	// Main tree content
 	content := s.renderTree()
-	treeH := s.height
+	treeH := s.height - 2
 	if s.filterOn || s.mode == modeInlineFilter {
-		treeH = s.height - 1
+		treeH = s.height - 3
 	}
 	if treeH < 5 {
 		treeH = 5
