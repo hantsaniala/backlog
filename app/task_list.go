@@ -634,6 +634,34 @@ func (s *taskListModel) enterDetail(task *model.Task) {
 	s.detailOpen = true
 }
 
+func (s *taskListModel) childProgress(task *model.Task) (done, total int) {
+	childIDs := make(map[string]bool)
+	for _, cid := range task.Children {
+		if cid != "" {
+			childIDs[cid] = true
+		}
+	}
+	for _, t := range s.backlog.AllTasks {
+		if t.Parent == task.ID && t.ID != task.ID {
+			childIDs[t.ID] = true
+		}
+		if t.Epic == task.ID && t.ID != task.ID {
+			childIDs[t.ID] = true
+		}
+	}
+	total = len(childIDs)
+	if total == 0 {
+		return 0, 0
+	}
+	for cid := range childIDs {
+		child := s.backlog.TaskByID(cid)
+		if child != nil && child.Status == model.StatusDone {
+			done++
+		}
+	}
+	return
+}
+
 func (s *taskListModel) centerCursor() {
 	// Centers the viewport on the cursor by adjusting scroll position
 	half := (s.height - 8) / 2
